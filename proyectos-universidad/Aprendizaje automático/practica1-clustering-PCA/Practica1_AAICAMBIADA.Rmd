@@ -1,0 +1,1382 @@
+---
+title: "Airline Passenger Satisfaction"
+author: "Lucía Arnaldo, Lorena Villa y Álvaro Sánchez"
+date: "2025-02-06"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: united
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+```{r}
+
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+Para comenzar nuestro análisis descriptivo, necesitamos cargar una serie de paquetes en R que facilitarán la manipulación de datos, la creación de gráficos, y la presentación de tablas.
+
+```{r}
+library(tidyverse)
+library(summarytools)
+library(GGally)
+library(gt)
+library(flextable)
+library(knitr) 
+library(corrplot)
+library(ggplot2)
+library(dplyr)
+library(xfun)
+library(DescTools)
+library(cluster)
+library(gplots)
+library(MASS)
+library(factoextra)
+library(reshape2)
+library(parameters)
+library(ltm)
+```
+
+# Introducción
+
+El conjunto de datos contiene una encuesta sobre la satisfacción de los pasajeros de las aerolíneas, con el objetivo de a través de los valores de diferentes variables deducir si el cliente está satisfecho o por el contrario, insatisfecho.
+Los datos han sido extraídos de "<https://www.kaggle.com/datasets/teejmahal20/airline-passenger-satisfaction/data>" Entre las diferentes preguntas que uno se puede hacer de este conjunto de datos, en la descripción del lugar de extracción de los datos, nos plantean las siguientes: - ¿Qué factores están altamente correlacionados con un pasajero satisfecho o insatisfecho?
+- ¿Se puede predecir la satisfacción de los pasajeros?
+Por tanto, de esta primera observación de la descripción podemos deducir que la variable objetivo es "satisfacción", la cual se comporta de manera binaria, ya que de un primer vistazo del conjunto de datos, vemos que se contesta con "satisfecho" o "neutral o insatisfecho".
+Además, tenemos un total de 25 variables, que quitando la de objetivo, nos quedan 24 variables donde encontrar una posible correlación entre la respuesta objetivo y las otras.
+
+## Variables del Conjunto de Datos
+
+Según la descripción oficial de los datos, las variables que conforman el conjunto de datos son:
+
+-   **Gender**: Género de los pasajeros (*masculino* o *femenino*). Categórica
+-   **Customer Type**: Cliente regular o no regular de la aerolínea. Categórica
+-   **Age**: Edad real de los pasajeros. Continua
+-   **Type of Travel**: Objetivo del vuelo de los pasajeros (*viaje personal* o *de trabajo*). Categórica
+-   **Class**: Tipo de viaje (*Business, Económica o Económica Plus*). Categórica
+-   **Flight Distance**: Distancia del vuelo en kilómetros. Continua
+-   **Inflight Wifi Service**: Nivel de satisfacción con el servicio de wifi a bordo *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Departure/Arrival Time Convenient**: Nivel de satisfacción con la hora de salida/llegada *(0: sin calificación, 1-5: nivel de satisfacción)*. Disccreta
+-   **Ease of Online Booking**: Nivel de satisfacción con la reserva en línea *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Gate Location**: Nivel de satisfacción con la ubicación de la puerta *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Food and Drink**: Nivel de satisfacción con la comida y la bebida *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Online Boarding**: Nivel de satisfacción con el embarque en línea *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Seat Comfort**: Nivel de satisfacción con la comodidad del asiento *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Inflight Entertainment**: Nivel de satisfacción con el entretenimiento a bordo *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **On-board Service**: Nivel de satisfacción con el servicio a bordo *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Leg Room Service**: Nivel de satisfacción con el espacio para las piernas *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Baggage Handling**: Nivel de satisfacción con el manejo del equipaje *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Check-in Service**: Nivel de satisfacción con el servicio de facturación *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Inflight Service**: Nivel de satisfacción con el servicio a bordo *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Cleanliness**: Nivel de satisfacción con la limpieza *(0: sin calificación, 1-5: nivel de satisfacción)*. Discreta
+-   **Departure Delay in Minutes**: Minutos de retraso en la salida del vuelo. Continua
+-   **Arrival Delay in Minutes**: Minutos de retraso en la llegada del vuelo. Continua
+-   **Satisfaction**: Nivel de satisfacción de la aerolínea, con dos opciones: `"satisfecho"` o `"neutral e insatisfecho"`. Categórica
+
+```{r}
+# Cargamos el csv con los datos.
+library(readr)
+datos_originales <- read_csv("train.csv")
+View(datos_originales)
+
+```
+
+## Partición de los datos
+
+```{r}
+set.seed(100)                          # Usamos semilla para que se pueda reproducir.
+
+obsTotal <- dim(datos_originales)[1]    # Leemos todas las muestras (104K).
+varTotal <- dim(datos_originales)[2]    # Leemos todas la variables (25).
+
+indices <- 1:obsTotal                  # Numeramos cada muestra.
+
+obsTrain <- obsTotal * .02             # Usamos el 2% para entrenar.
+obsTest <- obsTotal * .004             # Usamos el 0.4% para el test.
+obsVali <- obsTotal * .004             # Otro 0.4% para validacion.
+
+# Numeramos las muestras de entrenamiento, test y validacion.
+indicesTrain <- sample(indices, obsTrain, replace = FALSE)
+indicesTest <- sample(indices[-indicesTrain], obsTest, replace = FALSE)
+indicesVali <- sample(indices[-indicesTrain], obsVali, replace = FALSE)
+
+# Cargamos todas las muestras 
+train <- datos_originales[indicesTrain,]
+test <- datos_originales[indicesTest, ]
+vali <- datos_originales[indicesVali, ]
+
+
+```
+
+# EDA
+
+## ¿Cuál es el tamaño de la base de datos?
+
+**¿Cuántas observaciones hay?** **¿Cuántas variables/características están medidas?**
+
+```{r}
+dim(datos_originales)
+dim(train)
+
+```
+
+Con la función dim() vemos que el conjunto de datos está formado por 103904 observaciones, de las cuales solo nos hemos quedado con 2078 en train para que sea más fácil trabajar con los datos, y consta de 25 características medidas o variable.
+
+**¿Existen valores faltantes?**
+
+```{r}
+sum(is.na(datos_originales))
+colSums(is.na(datos_originales))
+sum(is.na(train))
+colSums(is.na(train))
+```
+
+Para comprobar si existen datos faltantes usamos la función sum(is.na()) y para ver de qué variable son los datos faltantes usamos la función colSums(is.na()).
+Podemos observar que tenemos 310 datos faltantes, todos ellos son de la variable 'arrival delay in minutes'.
+En la muestra de train solo hay 7 datos faltantes, también de la variable 'arrival delay in minutes'.
+
+
+
+## Variable objetivo: ¿Existe una variable de “respuesta”?
+
+La variable objetivo es la variable de interés fundamental.
+En este conjunto de datos, la variable objetivo es la satisfacción, que hace referencia al nivel de satisfacción de la aerolínea, con dos opciones: "satisfecho" o "neutral e insatisfecho".
+Relacionando esta variable con el resto de variables, veremos cómo afecta cada característica al nivel de satisfacción final del cliente, que es lo que nos interesa y el objetivo final de la práctica.
+
+**¿Binaria o multiclase?** Se trata de una variable binaria ya que solo toma dos posibles valores, que en este caso son "satisfecho" o "neutral e insatisfecho"
+
+```{r}
+table(train$satisfaction)
+```
+
+```{r}
+ggplot(data=train,aes(x=satisfaction,fill=satisfaction)) +
+  geom_bar(aes(y=(..count..)/sum(..count..))) +
+  scale_y_continuous(labels=scales::percent) +
+  theme(legend.position="none") +
+  ylab("Frecuencia relativa") +
+  xlab("Variable respuesta: satisfaction")
+```
+
+Este gráfico nos ayuda a ver cómo se distribuyen los datos respecto a la variable objetivo.
+Vemos que la cantidad de clientes que establecen su satisfacción del vuelo como neutral o insatisfecho es mayor que la de los clientes que marcan que están satisfechos.
+En torno al 42% de la muestra de entrenamiento está satisfecho con la aerolínea, mientras que el 58% está insatisfecho o neutral.
+
+## ¿Es posible identificar variables irrelevantes?
+
+Las dos primeras variables, que son "1" e "id" podemos considerarlas irrelevantes.
+
+La variable "1", que en realidad parece ser un contador que numera a los pasajeros (0, 1, 2, 3,...), no tiene utilidad en el análisis.
+Su único propósito es asignar un número a cada fila del dataset sin representar ninguna característica relevante del pasajero ni del vuelo.
+
+La variable "id" es simplemente un identificador único asignado a cada pasajero dentro del conjunto de datos.
+Su única función es diferenciar las observaciones entre sí, pero no contiene ninguna relación con la experiencia del pasajero ni con los factores que influyen en su satisfacción.
+Dado que no tiene ninguna variabilidad explicativa respecto a la variable objetivo, no aporta valor al análisis.
+
+Por estas razones, tanto la variable "1" como "id" deberían eliminarse del análisis, ya que no aportan información útil para entender la satisfacción de los pasajeros y podrían incluso introducir ruido innecesario en el modelo.
+Dicha eliminación la hacemos al final, cuando hagamos un análisis previo.
+
+## Distribución de las variables categóricas
+
+```{r}
+#Género
+ggplot(data=train)+
+  geom_bar(mapping=aes(x=Gender, fill=Gender))
+train%>%
+  count(Gender)
+#Tipo cliente
+ggplot(data=train)+
+  geom_bar(mapping=aes(x=`Customer Type`, fill=`Customer Type`))
+train%>%
+  count(`Customer Type`)
+#Tipo de viaje
+ggplot(data=train)+
+  geom_bar(mapping=aes(x=`Type of Travel`, fill=`Type of Travel`))
+train%>%
+  count(`Type of Travel`)
+#Clase
+ggplot(data=train)+
+  geom_bar(mapping=aes(x=Class, fill=Class))
+train%>%
+  count(Class)
+#Satisfación (variable objetivo)
+ggplot(data=train)+
+  geom_bar(mapping=aes(x=satisfaction, fill=satisfaction))
+train%>%
+  count(satisfaction)
+
+#wifi
+ggplot(data=train, aes(x=factor(`Inflight wifi service`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para el Wifi en Vuelo", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Inflight wifi service`)
+#Departure/Arrival time convenient
+ggplot(data=train, aes(x=factor(`Departure/Arrival time convenient`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para la Conveniencia del Horario de Salida/Llegada", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+
+train%>%
+  count(`Departure/Arrival time convenient`)
+#Ease of online booking
+ggplot(data=train, aes(x=factor(`Ease of Online booking`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para reserva online", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Ease of Online booking`)
+#Gate location
+ggplot(data=train, aes(x=factor(`Gate location`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para lugar del asiento", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Gate location`)
+#Food and drink
+ggplot(data=train, aes(x=factor(`Food and drink`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para comida y bebida", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Food and drink`)
+#Online boarding
+ggplot(data=train, aes(x=factor(`Online boarding`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para embarque en línea", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Online boarding`)
+#Seat comfort
+ggplot(data=train, aes(x=factor(`Seat comfort`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para comodidad del asiento", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Seat comfort`)
+#Inflight entertaiment
+ggplot(data=train, aes(x=factor(`Inflight entertainment`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para entretenimiento", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Inflight entertainment`)
+#On-board service
+ggplot(data=train, aes(x=factor(`On-board service`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para servicios a bordo", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`On-board service`)
+#Leg room service
+ggplot(data=train, aes(x=factor(`Leg room service`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para espacio para piernas", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Leg room service`)
+#Baggage handling
+ggplot(data=train, aes(x=factor(`Baggage handling`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para tratamiento de equipaje", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Baggage handling`)
+#checking service
+ggplot(data=train, aes(x=factor(`Checkin service`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para checking", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Checkin service`)
+#Inflight service
+ggplot(data=train, aes(x=factor(`Inflight service`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para servicio a bordo", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Inflight service`)
+#cleanliness
+ggplot(data=train, aes(x=factor(`Cleanliness`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para limpieza", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`Cleanliness`)
+#Satisfaction
+ggplot(data=train, aes(x=factor(`satisfaction`))) +
+  geom_bar(fill="lightblue", color="black") +
+  labs(title="Distribución de Votaciones para satisfacción", 
+       x="Nivel de Servicio (1 = Peor, 5 = Mejor)", 
+       y="Frecuencia")
+train%>%
+  count(`satisfaction`)
+```
+
+El análisis de la distribución de las variables categóricas revela patrones claros en la composición y percepción de los pasajeros.
+En cuanto al género, la distribución es relativamente equilibrada, con una ligera mayoría de pasajeras.
+Respecto al tipo de cliente, los clientes leales superan ampliamente a los no leales, lo que indica una base de usuarios recurrentes.
+La mayoría de los pasajeros viajan por negocios en comparación con los viajes personales.
+En términos de clases, las categorías Business y Economy tienen proporciones similares, mientras que Economy Plus tiene una menor representación.
+En cuanto a la satisfacción, hay más pasajeros neutrales o insatisfechos que satisfechos, lo que refleja áreas de mejora en la experiencia del usuario.
+En las valoraciones de servicios, la percepción del WiFi, la reserva en línea y la ubicación del asiento tiende a concentrarse en puntuaciones intermedias, mientras que la conveniencia del horario de vuelo y la comida y bebida reciben mejores evaluaciones con una inclinación hacia calificaciones altas.
+En general, las valoraciones tienden a concentrarse en puntuaciones medias y altas (3, 4 ó 5), especialmente en el embarque en línea, comodidad del asiento, entretenimiento, servicios a bordo, espacio para piernas, tratamiento de equipaje, check-in y limpieza.
+La comodidad del asiento y el entretenimiento muestran valoraciones equilibradas, mientras que el servicio a bordo y el embarque en línea destacan con una mayor proporción de calificaciones altas.
+Sin embargo, la satisfacción general refleja que un número significativo de pasajeros sigue sin estar completamente satisfecho con su experiencia de vuelo, lo que señala oportunidades para mejorar la percepción del servicio.
+
+## Distribución de las variables numéricas (histogramas)
+
+```{r}
+ggplot(train, aes(x = Age)) + 
+  geom_histogram(aes(y = ..density..),
+                 colour = 1, fill = "lightblue", bins=20) +
+  geom_density(lwd = 1, colour = "red",
+               fill = "red", alpha = 0.2) + theme_minimal()
+
+ggplot(train, aes(x = `Flight Distance`)) + 
+  geom_histogram(aes(y = ..density..),
+                 colour = 1, fill = "lightblue", bins=20) +
+  geom_density(lwd = 1, colour = "red",
+               fill = "red", alpha = 0.2) + theme_minimal()
+
+ggplot(train, aes(x = `Departure Delay in Minutes`)) + 
+  geom_histogram(aes(y = ..density..),
+                 colour = 1, fill = "lightblue", bins=20) +
+  geom_density(lwd = 1, colour = "red",
+               fill = "red", alpha = 0.2) + theme_minimal()
+ggplot(train, aes(x = `Arrival Delay in Minutes`)) + 
+  geom_histogram(aes(y = ..density..),
+                 colour = 1, fill = "lightblue", bins=20) +
+  geom_density(lwd = 1, colour = "red",
+               fill = "red", alpha = 0.2) + theme_minimal()
+```
+
+Las distribuciones de las variables continuas muestran distintos patrones.
+La edad presenta una distribución multimodal, lo que indica la presencia de varios rangos de edad dentro la muestra, sin ajustarse a una distribución normal.
+La distancia de vuelo exhibe una asimetría positiva, con la mayoría de los vuelos siendo de corta distancia y una disminución progresiva en la frecuencia a medida que aumenta la distancia.
+Tanto el retraso en la salida como en la llegada presentan distribuciones altamente sesgadas a la derecha, con la mayoría de los vuelos partiendo y llegando a tiempo o con mínimos retrasos, pero con una cola larga que indica la presencia de algunos retrasos extremos.
+En conjunto, estas distribuciones reflejan la heterogeneidad de la muestra analizada y sugieren la posible existencia de factores que afectan cada variable de manera diferenciada.
+
+## Estadísticos resumen
+
+```{r}
+summary(train)
+```
+
+El resumen del conjunto de datos, muestra que la edad de los pasajeros varía entre 7 y 79 años, con una mediana de 40, mientras que la distancia de vuelo oscila entre 67 y 4000, con una media de 1202,1.
+Se observan retrasos en la salida y llegada con valores máximos de 389 y 420 minutos, respectivamente.
+Las puntuaciones de satisfacción y servicios, como el wifi a bordo, la facilidad de reserva y la comodidad del asiento, tienen una mediana de 3 o 4, indicando experiencias mayoritariamente neutras o ligeramente positivas.
+La limpieza y el servicio en vuelo presentan medias entre 3,3 y 3,6, lo que nos sugiere áreas de mejora.
+En las variables de retrasos de salida y llegada hay valores faltantes, que trataremos más adelante.
+
+## Detección de valores atípicos
+
+Boxplot para variables age, flight distance, retraso en salida y llegada.
+Para la edad detectar posibles errores de edades irreales, valores negativos.
+En la distancia de vuelo detectar si puede haber vuelos largos o cortos.
+Y por último, extremos en los tiempos de retraso.
+
+```{r}
+train_clean <- train %>% 
+  filter(!is.na(Age) & !is.na(`Flight Distance`) & !is.na(`Departure Delay in Minutes`) & !is.na(`Arrival Delay in Minutes`))
+ggplot(train, aes(x="", y=Age)) + geom_boxplot(fill="lightblue") + labs(title="Boxplot de Edad")
+ggplot(train, aes(x="", y=`Flight Distance`)) + geom_boxplot(fill="orange") + labs(title="Boxplot de Distancia de Vuelo")
+ggplot(train, aes(x="", y=`Departure Delay in Minutes`)) + geom_boxplot(fill="red") + labs(title="Boxplot de Retrasos en Salida")
+ggplot(train, aes(x="", y=`Arrival Delay in Minutes`)) + geom_boxplot(fill="purple") + labs(title="Boxplot de Retrasos en Llegada")
+```
+
+En la edad la distribución es normal sin valores atípicos, por tanto, no se necesita hacer alguna transformación.
+En cuanto a la distancia de vuelo, si que hay algunos valores atípicos, por tanto, revisar vuelos largos y evaluar si se deben tratar.
+En cuento a los retrasos en la salida y llegada, muchos valores atípicos, es decir, hay muchos retrasos extremos, por tanto ahora evaluar si son datos reales o errores.
+
+
+
+
+### Identificar Usuarios que respondieron todo 1 o todo 5
+
+```{r}
+library(dplyr)
+satisfaccion_vars <- train %>% 
+  dplyr::select(`Inflight wifi service`, `Ease of Online booking`, 
+         `Gate location`, `Food and drink`, `Online boarding`, `Seat comfort`, `Inflight entertainment`,
+         `On-board service`, `Leg room service`, `Baggage handling`, `Checkin service`, 
+         `Inflight service`, `Cleanliness`)
+# Filtrar pasajeros que respondieron TODO 1
+usuarios_todo_1 <- train %>% 
+  filter(rowSums(satisfaccion_vars == 1) == ncol(satisfaccion_vars))
+
+# Filtrar pasajeros que respondieron TODO 5
+usuarios_todo_5 <- train %>% 
+  filter(rowSums(satisfaccion_vars == 5) == ncol(satisfaccion_vars))
+nrow(usuarios_todo_1)  # Cantidad de pasajeros que respondieron todo 1
+nrow(usuarios_todo_5)  # Cantidad de pasajeros que respondieron todo 5
+
+
+```
+
+Los resultados indican que nadie en el dataset respondió todo 1 ni todo 5 en las variables que podemos agrupar en el grupo de satisfacción.
+Con esta respuesta podemos decir, que se trata de un buen indicador de calidad del dataset.
+
+## Relación entre variables
+
+### Relación entre variables explicativas
+
+```{r}
+#Eliminar valores NA en variables clave
+train_clean <- train %>% 
+  filter(!is.na(Age) & !is.na(`Flight Distance`) & 
+         !is.na(`Departure Delay in Minutes`) & !is.na(`Arrival Delay in Minutes`))
+
+
+#Unir "Eco" y "Eco Plus" en "Economy" correctamente
+train_clean <- train_clean %>%
+  mutate(Class = as.character(Class),  # Asegurar que no sea factor
+         Class = ifelse(Class %in% c("Eco", "Eco Plus"), "Economy", "Business"))
+
+#Eliminar variables 1 y 2 
+train_clean <- subset(train_clean, select = -c(...1, id))
+#Crear la versión final de los datos sin duplicaciones
+train_final <- distinct(train_clean)
+
+
+
+
+```
+\-**Retrasos en salidas y llegadas**:
+
+```{r}
+ggplot(train, aes(x=`Departure Delay in Minutes`, y=`Arrival Delay in Minutes`)) +
+  geom_point(alpha=0.5, color="blue") +
+  geom_smooth(method="lm", color="red") +
+  labs(title="Relación entre Retraso en Salida y Llegada", 
+       x="Retraso en Salida (min)", 
+       y="Retraso en Llegada (min)")
+```
+
+Como vemos la mayoría de los puntos se alinean en una línea recta ascendente, confirmando la alta correlación entre las dos variables.
+La línea de regresión roja, lo que nos indica es una relación casi perfecta, indicando que cuanto mayor sea el retraso en la salida mayor será el retraso en la llegada.
+Y, en cuanto a la dispersión, hay algunos puntos con poco retraso en la saida pero más retraso en la llegada, pudiendo ser vuelos donde se compensó el tiempo en el aire.
+
+\-**Edad y tipo cliente**:
+
+```{r}
+#H0: (Hipótesis Nula): No hay diferencia significativa en la edad entre clientes leales y no leales.
+#H1: (Hipótesis Alternativa): Los clientes leales tienden a ser más mayores que los no leales.
+
+t.test(Age ~ `Customer Type`, data=train_final)
+ggplot(train_final, aes(x=`Customer Type`, y=Age, fill=`Customer Type`)) +
+  geom_boxplot() +
+  labs(title="Distribución de la Edad por Tipo de Cliente",
+       x="Tipo de Cliente", y="Edad") +
+  theme_minimal()
+
+```
+
+Como el p-valor\<0.05 entonces rechazamos H0, y por tanto, aceptamos que los clientes leales tienden a ser más mayores que los no leales.
+Los clientes leales son, en promedio, 10.53 años mayores que los clientes no leales.
+La mediana de los clientes leales es más alta, confirmando la tendencia.
+
+\-**Motivo viaje y tipo cliente**:
+
+```{r}
+"HO: No hay relación entre el motivo del viaje y la fidelidad del cliente"
+"H1: Los clientes que viajan por motivos personales tienden a ser más fieles (leales)"
+table(train_final$`Type of Travel`, train_final$`Customer Type`)
+#Cuántos clientes leales y no leales hay en cada categoría de motivo de viaje
+#Prueba chi-cuadrado
+chisq.test(table(train_final$`Type of Travel`, train_final$`Customer Type`))
+ggplot(train_final, aes(x=`Type of Travel`, fill=`Customer Type`)) +
+  geom_bar(position="fill") +
+  labs(title="Relación entre Motivo de Viaje y Tipo de Cliente",
+       x="Motivo del Viaje", y="Proporción de Clientes") +
+  theme_minimal()
+
+```
+
+435 clientes no leales viajan por motivos negocios.
+4 clientes no leales viajan por motivos personales.
+1032 clientes leales viajan por motivos de negocios.
+607 clientes leales viajan por motivos personales.
+El p-valor\<0.05 por lo que rechazamos H0, y por tanto, hay una relación significativa entre el motivo del viaje y fidelidad.
+Los clientes de viaje personal tienen una proporción muy alta de clientes leales.
+La diferencia es significativa, según el valor de X-squared=215.93, lo que indica una fuerte relación entre estas variables.
+Las personas que viajan por motivos personales son más propensas a ser clientes leales, mientras que los viajeros de negocios pueden estar menos comprometidos con una sola aerolínea y elegir según conveniencia.
+Todo lo anterior es confirmado con el gráfico de barras.
+
+
+
+\-**Distancia y tipo vuelo**:
+
+```{r}
+#H0: no hay diferencia significativa en la distancia de vuelo entre clases de viaje
+#H1: hay diferencia significativa. Los pasajeros de Business tienden a viajar distancias más largas que los de otras clases.
+ggplot(train_final, aes(x=Class, y=`Flight Distance`, fill=Class)) +
+  geom_boxplot() +
+  labs(title="Distancia de Vuelo por Clase", x="Clase de Vuelo", y="Distancia (km)") +
+  theme_minimal()
+
+
+```
+
+
+Las distancias varían significativamente entre clases. El boxplot confirma que los pasajeros de Business viajan distancias más largas en promedio que los de Economy y Eco Plus. Los dos últimos tipos tienen distancias más bajas y con más valores atípicos, respaldando nuestra hipótesis.
+
+## Relación entre variables explicativas y el target
+
+La correlación entre variables ayuda a comprender las relaciones entre las diferentes características en un conjunto de datos.
+Nos interesa estudiar las relaciones entre la variable objetivo 'satisfaction' y las demás variables.
+De esta forma podremos ver si hay variables irrelevantes, es decir, que no aportan información a la variable objetivo.
+
+Para evaluar la relación entre la variable objetivo y las variables numéricas, utilizamos gráficos de densidad y boxplots para visualizar la distribución de los datos y la prueba t de Student para comparar las medias entre pasajeros satisfechos e insatisfechos.
+Para analizar la relación entre satisfaction y las variables categóricas, utilizamos la prueba de Chi-cuadrado.
+
+\-**Satisfacción y tipo cliente**:
+
+```{r}
+#H0: No hay diferencia en satisfacción entre clientes leales y no leales
+#H1: Los clientes leales tienen una satisfacción mayor que los no leales
+chisq.test(table(train_final$satisfaction, train_final$`Customer Type`))
+
+ggplot(train_final, aes(x=satisfaction, fill=`Customer Type`)) +
+  geom_bar(position="fill") +
+  labs(title="Distribución de Satisfacción por Tipo de Cliente",
+       x="Satisfacción", y="Proporción de Clientes") +
+  theme_minimal()
+
+```
+El p-valor<0.05, por lo que rechazamos H0, y afirmamos que los clientes satisfechos tienden a ser más leales. El gráfico de barras apoya nuestra hipótesis. Aunque en ambos niveles de satisfacción la mayoría de los clientes son leales, la proporción de clientes no leales es mayor en la categoría de “Neutral or Dissatisfied”.
+
+\-**Flight distance y satisfación**: En primer lugar vamos a estudiar si la variable "Flight Distance" influye en la satisfacción del pasajero
+
+```{r}
+ggplot(train_final, aes(x = log(`Flight Distance`), colour = satisfaction)) +
+  geom_density(lwd=2, linetype=1)
+
+```
+
+Sí que se observa una relación.
+Se puede apreciar que valores más altos de distancia del vuelo están relacionados con pasajeros satifechos.
+En cambio, los pasajeros neutrales o insatisfechos se acumulan en vuelos con una distancia media.
+
+```{r}
+df <- train_final %>%
+      dplyr::select(`Flight Distance`, satisfaction) %>%
+      mutate(log_flight_distance = log(`Flight Distance`))
+
+# Resumen para pasajeros satisfechos
+summary(df %>% filter(satisfaction == "satisfied") %>% .$log_flight_distance)
+
+# Resumen para pasajeros insatisfechos
+summary(df %>% filter(satisfaction == "dissatisfied") %>% .$log_flight_distance)
+
+```
+
+Hacemos un box-plot para verlo gráficamente.
+Este gráfico ayuda a ver que los pasajeros satisfechos tienden a volar distancias más largas, como hemos mencionado anteriormente.
+
+```{r}
+ggplot(df, aes(satisfaction, log_flight_distance, fill = satisfaction)) + 
+        geom_boxplot()
+
+```
+
+Para contrastar la hipótesis, podemos hacer un test de la T para igualdad de medias.
+
+```{r}
+t.test(log_flight_distance ~ satisfaction, data = df)
+
+```
+
+Como el p-valor es menor a 0.05, podemos rechazar la hipótesis nula y concluir que hay una diferencia significativa en la distancia del vuelo entre pasajeros satisfechos e insatisfechos.
+
+\-**Clase vuelo y satisfación**: Ahora vamos a estudiar la relación entre la clase de vuelo y la satisfacción del pasajero
+
+```{r}
+data1 <- table(train$Class, train$satisfaction)
+
+dimnames(data1) <- list(Class = unique(train$Class),
+                        satisfaction = c("dissatisfied", "satisfied"))
+
+data1
+
+```
+
+```{r}
+ggplot(data = train_final, aes(x = Class, fill = satisfaction)) +
+    geom_bar()
+
+```
+
+Se observa que la mayoría de los pasajeros de la clase Business están satisfechos, mientras que en la clase Económica predomina la insatisfacción.
+Estos resultados sugieren que la clase de vuelo desempeña un papel importante en la percepción del servicio por parte del pasajero, lo que podría estar relacionado con factores como la comodidad del asiento, la calidad del servicio a bordo y la experiencia general del viaje.
+Para confirmar si esta relación es estadísticamente significativa, aplicamos un test de Chi-cuadrado.
+
+```{r}
+chisq.test(train_final$Class, train_final$satisfaction)
+```
+
+Dado que el p-valor\<0.05, rechazamos la hipótesis nula, que supone que no hay relación entre la clase de vuelo y la satisfacción del pasajero.
+Esto significa que existe una asociación estadísticamente significativa entre ambas variables.
+
+\-**Género y satisfación**: Hacemos el mismo proceso para el género
+
+```{r}
+data1 <- table(train_final$Gender, train_final$satisfaction)
+
+dimnames(data1) <- list(Gender = unique(train_final$Gender),
+                        satisfaction = c("dissatisfied", "satisfied"))
+
+data1
+
+```
+
+```{r}
+ggplot(data = train_final, aes(x = Gender, fill = satisfaction)) +
+    geom_bar()
+```
+
+En el gráfico se observa que la proporción de pasajeros satisfechos e insatisfechos es bastante similar tanto para hombres como para mujeres, sin diferencias significativas entre ambos géneros.
+En ambos casos, la cantidad de pasajeros insatisfechos supera a la de los satisfechos, lo que indica que la percepción del servicio de la aerolínea no parece estar influenciada por el género del pasajero.
+
+```{r}
+chisq.test(train_final$Gender, train_final$satisfaction)
+```
+
+Obtenemos un p-valor = 0.4396.
+Un p-valor \> 0.05 indica que no hay suficiente evidencia estadística para rechazar la hipótesis nula, la cual establece que no existe una relación significativa entre el género y la satisfacción del pasajero.
+
+Esto confirma lo que se observa en el gráfico de barras, que la distribución de satisfacción es bastante similar para hombres y mujeres.
+Por lo que podemos concluir que el género no influye de manera significativa en el nivel de satisfacción de los pasajeros en este conjunto de datos.
+
+# Reducción de dimensionalidad
+## PCA con los datos de la rúbrica.
+
+Realizamos el estudio de componentes principales con los datos <https://data.scorenetwork.org/data/ironman_lake_placid_female_2022.csv> , procedentes de la web <https://data.scorenetwork.org/triathlon/triathlon_lakeplacid_women_ironman.html> Las variables a usar para PCA son Swim.Time, Bike.Time y Run.Time.
+El conjunto de datos tiene 489 filas con 17 columnas.
+Cada fila representa a una mujer que ha partipado en Ironman en 2022.
+Las variables que vamos a usar para el PCA son: - Swim.Time: El tiempo en minutos que tardó en completar la parte de natación.
+- Bike.Time: El tiempo en minutos que tardó en completar la parte de ciclismo.
+- Run.Time: El tiempo en minutos que tardó en completar la parte de carrera a pie.
+
+### Usando la función prcomp () de R
+
+```{r}
+library(readr)
+ironman_lake_placid_female_2022 <- read_csv("ironman.csv")
+View(ironman_lake_placid_female_2022)
+
+```
+
+```{r}
+summary(ironman_lake_placid_female_2022)
+str(ironman_lake_placid_female_2022)
+sapply(ironman_lake_placid_female_2022, is.numeric)
+
+```
+
+```{r}
+library(ggplot2)
+#Variables para pca --> swim.time, bike.time y run.time
+variables_pca <- ironman_lake_placid_female_2022[, c("Swim.Time", "Bike.Time", "Run.Time")]
+#Estandarizar los datos
+scaled_data <- scale(variables_pca)
+pca_result <- prcomp(scaled_data, center = TRUE, scale. = TRUE)
+summary(pca_result)
+#ver los pesos de las variables
+pca_result$rotation
+#ver los valores transformados de los datos
+head(pca_result$x)
+#gráfico
+library(ggplot2)
+
+pca_var <- data.frame(PC = 1:length(pca_result$sdev), 
+                      Variance = (pca_result$sdev)^2 / sum((pca_result$sdev)^2))
+
+ggplot(pca_var, aes(x = PC, y = Variance)) +
+  geom_line() + geom_point() +
+  ggtitle("Proporción de Varianza Explicada") +
+  xlab("Componente Principal") +
+  ylab("Proporción de Varianza") +
+  theme_minimal()
+
+# Convertir los valores PCA en un dataframe
+pca_scores <- as.data.frame(pca_result$x)
+
+ggplot(pca_scores, aes(x = PC1, y = PC2)) +
+  geom_point(color = "blue") +
+  ggtitle("PCA: Componentes principales") +
+  xlab("PC1") +
+  ylab("PC2") +
+  theme_minimal()
+
+```
+
+En cuanto a la varianza explicada por cada componente, observamos que PC1 explica el 56,71% de la varianza; PC2 explica el 33,26% de la varianza y PC3 explica el 10,03%, llegando a la conclusión de que los dos primeros componentes explican eñ 89,97% de la variabilidad de los datos, lo que nos indica que con dos componentes son suficientes para recoger la mayoría de información.
+En cuanto a la tabla que representa las cargas de cada variable en los componentes principales, vemos que: - PC1 está influenciando principalmente por la variable Bike.Time (-0,7063) y Run.Time (-0,7047), representando así una combinación de tiempos de ciclismo y carrera.
+- PC2 está influenciado principalmente por Swim.Time (-0,9972), lo que trae como consecuencia que este componente diferencia principalmente a los nadadores.
+- PC3 tiene valores similares para Bike.Time y Run.Time, lo que nos indica que es una componente menos relevante en la variabilidad de los datos.
+Por tanto, en resumen, PC1 refleja una combinación de ciclismo y carrera, mientras que PC2 es casi exclusivamente natación.
+En cuanto al primer gráfico, este muestra cómo la varianza disminuye a medida que aumenta el número de componentes principales, reforzándo así la idea de que con dos componentes es suficiente para capturar la mayor parte de la información.
+
+En el segundo gráfico vemos que hay un valor atípico muy extremo.
+Vamos a proceder a revisar las diferentes observaciones para intentar aclarar que es lo que ocurre.
+
+```{r}
+# Identificar valores atípicos en PC2
+outliers <- pca_scores[pca_scores$PC2 < -10, ]  # Filtrar valores extremos
+print(outliers)
+
+ironman_lake_placid_female_2022[183, c("Swim.Time", "Bike.Time", "Run.Time")]
+
+```
+
+Con la primera tabla vemos que la observación 183 es la causante de ese valor extremo de PC2, con un valor de -21,96845, lo que nos estaba afectando a la visualización del PCA.
+En segundo lugar, procedemos a imprimir que es lo que ocurre en la obsevración 183.
+Vemos que el valor de Swim.Time es extremadamente alto y poco realista ya que pone 3498 minutos (casi 58 horas), confirmando así que se trata de un error en los datos o bien una entrada atípica.
+Para una correcta realización del PCA procedemos a eliminar ese valor extremo.
+Consideramos que es la mejor opción porque ese valor es un error o caso extraño no representativo.
+Además, aunque lo ajustemos el dato seguirá siendo atípico.
+Debemos tener en cuenta que este procedimiento nos permite realizar un análisis más correcto del PCA.
+Y, por último, si tenemos en cuenta el contexto deportivo, este dato no refleja la realidad de los atletas.
+
+```{r}
+#Eliminar la observación y rehacer el PCA
+df_clean <- ironman_lake_placid_female_2022[-183, ]
+pca_result <- prcomp(scale(df_clean[, c("Swim.Time", "Bike.Time", "Run.Time")]), center = TRUE, scale. = TRUE)
+ggplot(as.data.frame(pca_result$x), aes(x = PC1, y = PC2)) +
+  geom_point(color = "blue") +
+  ggtitle("PCA sin outliers") +
+  xlab("PC1") +
+  ylab("PC2") +
+  theme_minimal()
+biplot(pca_result, scale = 0)
+```
+
+Ahora, se observa una distribución más uniforme de los datos, teniendo ua nube de puntos dispersa que permite un análisis más claro.
+Vemos que PC1 sigue capturando la mayor variabilidad, con una tendencia ligeramente diagonal en la distribución.
+Swim.Time apunta en una dirección diferente a Bike.Time y Run.Time, lo que confirma que PC2 está más relacionado con la natación, mientras que PC1 representa una combinación de ciclismo y carrera.
+Bike.Time y Run.Time tienen vectores cercanos, indicando que están correlacionados en los datos.
+La mayoría de los atletas (exceptuando algunos en la izquierda) están agrupados en un espacio intermedio de PC1 y PC2, lo que sugiere que sus tiempos tienen una distribución normal en estos componentes.
+Hay cierta dispersión a lo largo de PC1, indicando variabilidad en los tiempos de ciclismo y carrera.
+
+### Sin usar ninguna función de R
+
+Los pasos a seguir para calcular el PCA manualmente en R son los siguientes:
+1. Cargar los datos.
+2. Estandarizar las variables (media=0, varianza=1).
+3. Calcular la matriz de covarianza.
+4. Obtener los autovalores y autovectores.
+5. Calcular las componentes principales.
+6. Ordenar por la varianza explicada.
+7. Transformar los datos a las nuevas componentes.
+
+```{r}
+#Cargar los datos
+df <- ironman_lake_placid_female_2022[, c("Swim.Time", "Bike.Time", "Run.Time")]
+
+#Estandarizar los datos (media = 0, desviación estándar = 1)
+df_scaled <- scale(df)
+
+#Calcular la matriz de covarianza
+cov_matrix <- cov(df_scaled)
+
+#Obtener autovalores y autovectores
+eigen_decomp <- eigen(cov_matrix)
+eigenvalues <- eigen_decomp$values    # Varianza explicada por cada componente
+eigenvectors <- eigen_decomp$vectors  # autovectores
+
+#Calcular las componentes principales
+principal_components <- as.matrix(df_scaled) %*% eigenvectors
+
+#Convertir a DataFrame y nombrar las columnas
+pca_manual <- as.data.frame(principal_components)
+colnames(pca_manual) <- paste0("PC", 1:ncol(pca_manual))
+
+#Agregar los datos originales para comparación
+df_final <- cbind(df, pca_manual)
+
+#Mostrar los primeros valores de las componentes principales
+head(df_final)
+
+#Comparación para comprobación con los valores calculados con funciones de R
+pca_auto <- prcomp(scale(df[, c("Swim.Time", "Bike.Time", "Run.Time")]), center = TRUE, scale. = TRUE)
+head(pca_auto$x)
+
+
+```
+
+Aclaraciones del código: - Los autovalores nos dicen cuánta varianza explica cada componente y los autovectores son las direcciones de las nuevas componentes principales.
+- Cuando hablamos de transformación de los datos, hacemos referencia al proceso de la proyección de los datos originales sobre los autovectores generando las componentes principales.
+
+A continuación lo que hicimos fue comparar los resultados obtenidos manualmente con los obtenidos con la función prcomp().
+Como resultado obtuvimos que los valores de PC1, PC2 y PC3 coinciden, validando así ambos procesos.
+
+## Reducción para nuestros datos
+
+En este apartado trataremos de ver cómo podemos reducir la dimensión de nuestros datos para que sea más cómodo trabajar con ellos.
+
+Análisis previo: Viendo nuestros datos, podemos observar fácilmente que tenemos variables ordinales, continuas y categóricas, es decir, estamos trabajando con datos mixtos.
+Al no contar con variables únicamente continuas, descartamos usar el método PCA.
+En nuestro caso nos vamos a decantar por el método del escalado multidimensional.
+
+Primero tenemos que transformar un poco nuestras variables para poder trabajar mejor con ellas.
+- Las categóricas las binarizaremos.
+- En las ordinales cambiaremos el valor 0, que significa que no se ha asignado una calificación, por el valor de la media correspondiente en cada variable.
+- Las variables continuas, para que no acaparen toda la información, las escalaremos.
+- Quitaremos las muestras con datos faltantes ya que han sido muestras en las que no han recogido el retraso en la llegada del vuelo (despiste al recopilar los datos por parte de la empresa).
+- Por último sacaremos nuestra variable objetivo del dataset ya que no hay que usarla para el reducir la dimensión de nuestros datos.
+
+```{r}
+#Binarización de las variables categóricas:
+train_final$Gender_bin <- ifelse(train_final$Gender == "Male", 1, 0)
+train_final$TypeOfTravel_bin <- ifelse(train_final$`Type of Travel` == "Business travel", 1, 0)
+train_final$CustomerType_bin <- ifelse(train_final$`Customer Type` == "Loyal Customer", 1, 0)
+train_final$satisfaction_bin <- ifelse(train_final$satisfaction == "satisfied", 1, 0)
+train_final$Class_bin <- ifelse(train_final$Class == "Business", 1, 0)
+
+# Sustitución de las muestras sin calificación en las variables ordinales por la media:
+# Lista de tus variables ordinales
+ordinal_vars <- c(
+  "Inflight wifi service", 
+  "Departure/Arrival time convenient", 
+  "Ease of Online booking", 
+  "Gate location", 
+  "Food and drink", 
+  "Online boarding", 
+  "Seat comfort", 
+  "Inflight entertainment", 
+  "On-board service", 
+  "Leg room service", 
+  "Baggage handling", 
+  "Checkin service", 
+  "Inflight service", 
+  "Cleanliness"
+)
+
+# Función para reemplazar los 0 por la media en cada variable ordinal
+replace_zero_with_mean <- function(variable) {
+  # Calcular la media excluyendo los 0
+  mean_value <- mean(variable[variable != 0], na.rm = TRUE)
+  
+  # Reemplazar los 0 por la media calculada
+  variable[variable == 0] <- mean_value
+  
+  return(variable)
+}
+
+# Aplicar la función a todas las variables ordinales
+for (var in ordinal_vars) {
+  train_final[[var]] <- replace_zero_with_mean(train_final[[var]])
+}
+
+# Escalar las variables continuas
+
+train_final$Age_scaled <- scale(train_final$Age)
+train_final$FlightDistance_scaled <- scale(train_final$`Flight Distance`)
+train_final$RetrasoSalida_scaled <- scale(train_final$`Departure Delay in Minutes`)
+train_final$RetrasoLlegada_scaled <- scale(train_final$`Arrival Delay in Minutes`)
+
+# Datos para aplicar la reducción de dimensión
+
+datosMDS <- train_final %>% dplyr::select(-Gender, -`Customer Type`, -`Type of Travel`, -satisfaction, -Class, -Age, -`Flight Distance`, -`Departure Delay in Minutes`, -`Arrival Delay in Minutes`)
+###
+
+# Quitamos las muestras con datos faltantes para que funcione prcomp
+datosMDS <- na.omit(datosMDS)
+datosLDA <- datosMDS
+# Quitamos la variable target de los datos
+datosMDS <- datosMDS %>% dplyr::select(-`satisfaction_bin`)
+
+datosMDS[, c("Gender_bin", "TypeOfTravel_bin", "CustomerType_bin", "Class_bin")] <- 
+  lapply(datosMDS[, c("Gender_bin", "TypeOfTravel_bin", "CustomerType_bin", "Class_bin")], as.factor)
+
+datosMDS$Age_scaled <- as.numeric(datosMDS$Age_scaled)
+datosMDS$FlightDistance_scaled <- as.numeric(datosMDS$FlightDistance_scaled)
+datosMDS$RetrasoSalida_scaled <- as.numeric(datosMDS$RetrasoSalida_scaled)
+datosMDS$RetrasoLlegada_scaled <- as.numeric(datosMDS$RetrasoLlegada_scaled)
+
+```
+
+Como la función que vamos a usar es cmdscale, necesitamos una matriz de distancias en vez de nuestro dataset directamente.
+Al ver que tenemos variables ordinales, binarias y continuas, usaremos la distancia Gower para calcular nuestra matriz de distancias.
+
+Información sobre la matriz de distancias con la distancia Gower:
+- Es una matriz simétrica, cada elemento de la matriz representa la distancia entre dos observaciones.
+- Los valores están en el rango [0, 1].
+- Si el valor es 0, las dos observaciones son iguales, si es 1, son completamente distintas.
+
+### Matriz de distancias
+
+```{r}
+# Cálculo de la matriz de distancias Gower
+gower_dist <- daisy(datosMDS, metric = "gower")
+gower_matrix <- as.matrix(gower_dist)
+```
+
+```{r}
+# Comprobación de la desigualdad triangular.
+n <- nrow(datosMDS)
+resultados <- logical(1000)  # Almacenar resultados para 1000 tripletes
+
+for (m in 1:1000) {
+    ijk <- sample(1:n, 3, replace = FALSE)  # Seleccionar 3 observaciones aleatorias
+    i <- ijk[1]
+    j <- ijk[2]
+    k <- ijk[3]
+    
+    d_ij <- gower_matrix[i, j]
+    d_ik <- gower_matrix[i, k]
+    d_kj <- gower_matrix[k, j]
+    
+    resultados[m] <- d_ij <= d_ik + d_kj
+}
+
+print(all(resultados))  # TRUE si se cumple para todos los tripletes
+```
+
+Como además de las otras 3 condiciones de medida de desemejanza que cumple la distancia Gower, se verifica también la desigualdad triangular, llegamos a la conclusión de que la distancia Gower cumple con todos los requisitos para ser una distancia.
+
+
+### MDS
+
+A continuación aplicaremos el escalado multidimensional para reducir nuestros datos a 2 dimensiones, es decir, pasar de tener 22 variables a tener 2.
+
+```{r}
+mds_result <- cmdscale(gower_dist, k = 2)  # Reducimos a 2 dimensiones
+
+hc <- hclust(as.dist(gower_dist), method = "ward.D2")
+grupos <- cutree(hc, k = 4)  # Asignar 4 grupos
+
+datosMDS$grupo <- grupos
+```
+
+Para entender cómo se han formado nuestras nuevas 2 dimensiones a partir de las 22 variables originales, crearemos una matriz de correlación donde:
+- Un valor cercano a 1 o -1 indica que la variable está fuertemente asociada con la dimensión.
+- Un valor cercano a 0 indica que la variable no está asociada con la dimensión.
+
+```{r}
+# Identificar variables continuas (numéricas no binarias)
+vars_continuas <- names(datosMDS)[sapply(datosMDS, is.numeric) & 
+                                  sapply(datosMDS, function(x) length(unique(x)) > 2)]
+
+# Identificar variables binarias (solo dos valores únicos)
+vars_binarias <- names(datosMDS)[sapply(datosMDS, function(x) length(unique(x)) == 2)]
+
+# Extraer las coordenadas del MDS
+coordenadas <- as.data.frame(mds_result)
+colnames(coordenadas) <- c("Dim1", "Dim2")  # Renombrar las columnas
+
+# Combinar las coordenadas con las variables originales
+datos_completos <- cbind(datosMDS, coordenadas)
+
+# Calcular la correlación para variables continuas
+if (length(vars_continuas) > 0) {
+  correlaciones_continuas <- cor(datos_completos[, vars_continuas], coordenadas)
+  print("Correlaciones con variables continuas:")
+  print(correlaciones_continuas)
+} else {
+  print("No hay variables continuas para calcular correlaciones.")
+}
+
+# Calcular la correlación punto-biserial para variables binarias
+if (length(vars_binarias) > 0) {
+  correlaciones_binarias_dim1 <- sapply(vars_binarias, function(var) {
+    biserial.cor(coordenadas$Dim1, datos_completos[[var]])
+  })
+  
+  correlaciones_binarias_dim2 <- sapply(vars_binarias, function(var) {
+    biserial.cor(coordenadas$Dim2, datos_completos[[var]])
+  })
+  
+  # Mostrar las correlaciones
+  print("Correlaciones punto-biserial con variables binarias (Dim1):")
+  print(correlaciones_binarias_dim1)
+  
+  print("Correlaciones punto-biserial con variables binarias (Dim2):")
+  print(correlaciones_binarias_dim2)
+} else {
+  print("No hay variables binarias para calcular correlaciones.")
+}
+
+# Combinar correlaciones de variables continuas y binarias
+if (length(vars_continuas) > 0 || length(vars_binarias) > 0) {
+  correlaciones_completas <- rbind(
+    data.frame(Variable = vars_continuas, Tipo = "Continua", Dim1 = correlaciones_continuas[, 1], Dim2 = correlaciones_continuas[, 2]),
+    data.frame(Variable = vars_binarias, Tipo = "Binaria", Dim1 = correlaciones_binarias_dim1, Dim2 = correlaciones_binarias_dim2)
+  )
+  
+  # Convertir a formato largo
+  correlaciones_long <- melt(correlaciones_completas, id.vars = c("Variable", "Tipo"))
+  
+  # Crear el heatmap
+  ggplot(correlaciones_long, aes(x = variable, y = Variable, fill = value)) +
+    geom_tile() +
+    scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+    labs(title = "Correlación entre variables y dimensiones MDS",
+         x = "Dimensiones MDS",
+         y = "Variables",
+         fill = "Correlación") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+} else {
+  print("No hay variables continuas ni binarias para visualizar.")
+}
+
+
+```
+
+Comentarios:
+- Variables más importantes en las dos dimensiones, es decir, estás variables en general tendrán más peso que el resto de las otras:
+  - Food and drink.
+  - Seat comfort.
+  - Inflight entertainment.
+  - Cleanliness.
+  - Type of travel (Business / Personal).
+  - Class (Business / Eco).
+
+Cada fila representa una variable del conjunto de datos, y los colores indican el grado de correlación con cada dimensión.
+El color rojo representa una correlación positiva y el azul una correlación negativa.
+Cuanto más intenso, más fuerte será la correlación.
+
+Dim1: Recoge los vuelos por trabajo que viajan en clase business de distancia corta-media.
+En su mayoría, está relacionada con las variables que tienen que ver con el servicio del vuelo y la facilidad para scar el billete, y no con las variables relacionadas con el aeropuerto y con el horario del vuelo.
+A parte, si la calificación en las variables es alta (4-5), el valor de esta dimensión será más bajo.
+
+Dim2: Recoge los vuelos por motivos personales que viajan en clase eco de distancia media-larga.
+En esta dimensión, vuelven a tener presencia las variables más importantes mencionadas arriva, además, esta dimensión le da mucha más importancia a si se ha respetado el horario del vuelo.
+A mayor retraso, más grande será esta dimensión.
+
+# Análisis cluster
+
+## Clustering no jerárquico
+
+**k-medias**
+
+En primer lugar, elegimos cuál va a ser el número de clusters.
+Para ello usamos el método del codo
+
+```{r}
+fviz_nbclust(mds_result, kmeans, method = "wss")
+```
+
+A la vista del gráfico, vemos que 3 es una buena elección para el número óptimo de clusters, ya que es el punto a partir del cual empieza a disminuir la pendiente.
+
+Otra forma de elegir el número de clusters es el método de la silueta.
+
+```{r}
+fviz_nbclust(mds_result, kmeans, method = "silhouette")
+```
+
+Vemos que coincide con lo anterior y que este método también nos dice que el número óptimo de clusters es 3.
+
+Usamos ahora el método GAP.
+
+```{r}
+set.seed(123)
+gap_stat <- clusGap(mds_result, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+
+print(gap_stat, method = "firstmax")
+fviz_gap_stat(gap_stat)
+```
+
+De nuevo nos indica que 3 es el número óptimo de clusters, por lo que será el número de clusters que usaremos.
+
+```{r}
+k3 <- kmeans(mds_result, centers = 3, nstart = 25)
+str(k3)
+k3
+```
+
+Obtenemos 3 clusters, el cluster 1 con 694 observaciones, el cluster 2 con 653 y el cluster 3 con 724 observaciones.
+
+Las medias de los clusters (centros de cada cluster) nos proporcionan una idea de donde estarán situados cuando los representemos gráficamente: Cluster 1: (0.0655, 0.1254) Cluster 2: (-0.1518, -0.0243) Cluster 3: (0.0968, -0.0926)
+
+La suma de cuadrados dentro de cada cluster (withinss) indica cómo de compactos son: Cluster 1: 6.77 Cluster 2: 4.72 (el más compacto, con menor dispersión interna) Cluster 3: 7.23 (el menos compacto, con mayor dispersión)
+
+El porcentaje de varianza explicada por los clusters es del 69,5%, lo que indica una separación medianamente buena.
+
+```{r}
+colnames(mds_result) <- c("Dim1", "Dim2")
+fviz_cluster(k3, data = mds_result)
+```
+
+Al representarlo gráficamente, vemos que el cluster 1 (rojo) se encuentra más hacia valores positivos en ambas dimensiones, lo que sugiere que estos puntos tienen características similares y están más agrupados en esa región del espacio reducido.
+Por otro lado, el cluster 2 (verde) está más desplazado hacia valores negativos tanto en la primera como en la segunda dimensión, por lo que podría representar un grupo diferente con características opuestas a los otros clusters.
+Por último, el cluster 3 (azul) se encuentra más hacia valores positivos en la primera dimensión pero negativos en la segunda, indicando otro patrón de agrupación.
+
+```{r}
+set.seed(123)
+datosMDS %>% 
+  mutate(Cluster = k3$cluster) %>%
+  group_by(Cluster) %>%
+  summarise_all("mean")
+```
+
+```{r}
+res_kmeans <- cluster_analysis(mds_result,
+  n = 3,
+  method = "kmeans"
+)
+
+plot(summary(res_kmeans))
+```
+
+El Cluster 1, representa a los pasajeros más satisfechos en todas las dimensiones evaluadas.
+Estos clientes han expresado una percepción positiva tanto en la comodidad y la experiencia de vuelo como en la accesibilidad y el uso de la tecnología.
+Se asocia con puntuaciones altas en Seat Comfort, Inflight Entertainment, Online Boarding, On-board Service e Inflight WiFi.
+
+Por otro lado, el Cluster 2 agrupa a los pasajeros con los niveles más bajos de satisfacción en ambas dimensiones.
+Estos clientes reportan experiencias negativas tanto en la comodidad del vuelo como en la facilidad de acceso y uso de tecnología.
+Factores como la incomodidad de los asientos, la baja calidad del servicio a bordo y posibles dificultades en el proceso de check-in y embarque pueden estar influyendo en su percepción negativa.
+
+El Cluster 3 presenta un perfil intermedio, caracterizado por una satisfacción elevada en cuanto a la comodidad del vuelo, pero con una percepción negativa respecto a la accesibilidad tecnológica y la logística del aeropuerto.
+Esto sugiere que, aunque disfrutan del servicio en cabina y de la calidad de los asientos, enfrentan dificultades relacionadas con la conectividad WiFi, el proceso de check-in o la ubicación de las puertas de embarque.
+
+## Clustering jerárquico
+
+### Clustering jerárquico aglomerativo
+
+El clustering aglomerativo comienza con n conglomerados (uno por cada dato) y, en cada paso, va fusionando los 2 grupos más similares hasta que hay un único grupo que contiene al total de datos.
+
+En primer lugar obtenemos el coeficiente aglomerativo, que mide la cantidad de estructura de agrupamiento encontrada.
+Los valores más cercanos a 1 sugieren una fuerte estructura de agrupamiento.
+
+```{r}
+# Métodos evaluados
+m <- c( "average", "single", "complete", "ward")
+names(m) <- c( "average", "single", "complete", "ward")
+
+# Función para calcular el coeficiente de agrupamiento
+ac <- function(x) {
+  agnes(mds_result, method = x)$ac
+}
+
+map_dbl(m, ac)
+```
+
+Vemos que de los cuatro métodos planteados, el **método de Ward**, que es el que minimiza la suma de las diferencias cuadradas dentro de los clústeres, es el que más se aproxima a 1, por lo que identifica la estructura de agrupación más fuerte de los cuatro métodos evaluados.
+El **método complete** también presenta un alto coeficiente, lo que sugiere que también es un método fiable para el clustering.
+
+```{r}
+# Clustering jerárquico usando enlace completo
+hc2 <- agnes(mds_result, method = "complete" )
+
+hc2$ac
+```
+
+Hacemos una representación gráfica llamada dendrograma.
+
+```{r}
+# Matriz de disimilaridades
+d <- dist(mds_result, method = "euclidean")
+
+# Clustering jerárquico usando enlace completo
+hc1 <- hclust(d, method = "complete" )
+
+# Dendrograma
+plot(hc1, cex = 0.6, hang = -1)
+```
+
+```{r}
+hc2 <- agnes(mds_result, method = "ward" )
+
+# Drendrograma
+pltree(hc2, cex = 0.6, hang = -1, main = "Dendrograma de AGNES") 
+```
+
+Vemos que según el método que usemos, obtenemos dendrogramas distintos.
+Es importante determinar a qué distancia cortamos el dendrograma, es decir, dónde dibujar una línea horizontal que determine el número óptimo de clústeres.
+
+El método complete tiende a formar clusters más compactos, asegurando que los elementos dentro de un mismo cluster estén cercanos entre sí, ya que su objetivo es minimizar la distancia máxima entre elementos de clústeres.
+Si cortamos el dendrograma en torno a 0.4, podríamos identificar 5 clusters principales.
+
+El método de Ward minimiza la varianza dentro de los clústeres en cada paso de la fusión, asegurando que los grupos resultantes sean lo más homogéneos posible.
+En este caso, podríamos cortar en 4, obteniendo así 3 clusters.
+
+### Clustering jerárquico divisivo
+
+El clustering jerárquico divisivo es una estrategia de agrupamiento que sigue un enfoque descendente: comienza con todos los datos en un solo conglomerado y, a través de divisiones sucesivas, va creando subgrupos más pequeños hasta alcanzar un criterio de parada predefinido.
+
+```{r}
+# Clustering jerárquico divisivo
+hc4 <- diana(mds_result)
+
+# Coeficiente de división; cantidad de estructura de agrupación encontrada
+hc4$dc
+```
+
+Tal y como hemos mencionado antes, un valor cercano a 1 indica que los datos tienen una estructura de agrupamiento muy fuerte, es decir, hay patrones claros que permiten dividir los datos en grupos bien definidos.
+Por lo que el método DIANA presenta una segmentación clara y consistente.
+
+```{r}
+# Drendrograma
+pltree(hc4, cex = 0.6, hang = -1, main = "Dendrogram de DIANA")
+```
+
+El algoritmo DIANA comienza con todos los datos en un único cluster y, recursivamente, divide cada cluster en 2 cluster hijo.
+A medida que ascendemos en el árbol, las observaciones que son similares entre sí se combinan en ramas, que a su vez se fusionan a mayor altura.
+
+En las primeras divisiones, se pueden identificar grandes bloques de datos que se separan en etapas tempranas, lo que sugiere que existen grupos bien diferenciados en los datos.
+En las últimas divisiones, las separaciones ocurren a alturas más bajas, lo que indica que los subgrupos son cada vez más similares entre sí.
+
+Si realizamos un corte horizontal, en 0,4-0,5 obtenemos 3 o 4 clusters.
+
+```{r}
+# Método de Ward
+hc5 <- hclust(d, method = "ward.D2" )
+
+# Cortamos en 3 clusters
+sub_grp <- cutree(hc5, k = 3)
+
+# Visualizamos el corte en el dendrograma
+plot(hc5, cex = 0.6)
+rect.hclust(hc5, k = 3, border = 2:5)
+```
+
+En esta representación vemos cómo quedarían los 3 grupos al usar el método de Ward.
+Están claramente diferenciados y tienen un tamaño similar, lo que indica que los datos se distribuyeron adecuadamente.
+
+```{r}
+# Número de observaciones en cada cluster
+table(sub_grp)
+```
+
+```{r}
+# Visualización
+fviz_cluster(list(data=mds_result,cluster=sub_grp))
+```
+Obtenemos un gráfico similar al que obtuvimos con el clustering no jerárquico.
+
+### Clustering jerárquico de la matriz de distancias Gower
+En este apartado, retomaremos la matriz de distancias Gower generada previamente para hacer un análisis cluster. Con esta matriz no perdemos a penas información sobre nuestros datos, cosa que sí ocurre al reducir a 2 dimensiones nuestros datos usando el MDS. 
+Para la visualización de la matriz de distancias Gower usaremos la función heatmap.2 de la librería gplots, esta función genera dos dendrogramas, uno por filas y otro por columnas.
+Esto nos permite interpretar la matriz con mucha más facilidad.
+```{r}
+# Visualizacón de la matriz de distancias Gower
+heatmap.2(gower_matrix, 
+          trace = "none", 
+          col = colorRampPalette(c("white", "red"))(100),
+          main = "Matriz de distancias de Gower")
+```
+En el dendrograma por columnas que hemos obtenido, vemos 4 grupos, a continuación los explicaremos.
+```{r}
+
+# Ejemplo: Asignar grupos usando clustering jerárquico
+hc <- hclust(as.dist(gower_dist), method = "ward.D2")
+grupos <- cutree(hc, k = 4)  # Asignar 4 grupos
+
+datosMDS$grupo <- grupos
+
+# Para variables continuas/ordinales
+resumen_continuas <- aggregate(. ~ grupo, data = datosMDS, FUN = mean)
+print(resumen_continuas)
+
+# Para variables binarias
+resumen_binarias <- aggregate(. ~ grupo, data = datosMDS, FUN = function(x) mean(x == 1))
+print(resumen_binarias)
+
+# Identificar variables continuas (numéricas no binarias)
+vars_continuas <- names(datosMDS)[sapply(datosMDS, is.numeric) & 
+                                  sapply(datosMDS, function(x) length(unique(x)) > 2)]
+
+# Identificar variables binarias (solo dos valores únicos)
+vars_binarias <- names(datosMDS)[sapply(datosMDS, function(x) length(unique(x)) == 2)]
+
+# Graficar variables continuas (una por imagen)
+for (var in vars_continuas) {
+  var_clean <- tolower(trimws(var))  # Limpiar espacios y convertir a minúscula
+  if (var_clean != "grupo") {
+    p <- ggplot(datosMDS, aes(x = factor(grupo), y = .data[[var]], fill = factor(grupo))) +
+      geom_boxplot() +
+      labs(title = paste("Distribución de", var, "por grupo"),
+           x = "Grupo", y = var)
+    print(p)
+  }
+}
+
+# Graficar variables binarias (una por imagen)
+for (var in vars_binarias) {
+  var_clean <- tolower(trimws(var))  # Limpia espacios y pone en minúsculas
+  if (var_clean != "grupo") {
+    p <- ggplot(datosMDS, aes(x = factor(grupo), fill = factor(.data[[var]]))) +
+      geom_bar(position = "fill") +
+      labs(title = paste("Proporción de", var, "por grupo"),
+           x = "Grupo", y = "Proporción")
+    print(p)
+  }
+}
+
+```
+
+Grupo 1: Clientes que califican muy bien los servicios (Online Boarding, seat comfort, Inflight entertainment, On-board Service, leg room service, baggage handling, inflight service ) y el resto de servicios con puntuaciones medias-altas, en general hay poca dispersión de calificaciones en cada servicio.
+Tener en cuenta que sus vuelos apenas tienen retrasos de salida, son vuelos de media-larga distancia, son vuelos por trabajo, son clientes leales y viajan en clase business.
+- Altas calificaciones en servicios dentro del avión.
+Clientes por trabajo.
+Clientes generalmente conformes.
+
+Grupo 2: Calificaciones con mucha más dispersión, generalmente centradas en el 3, destacar que valoran muy bien el horario del vuelo y cómo tratan su equipaje.
+Sus vuelos son de distancias cortas y con un retraso mínimo.
+Son vuelos por motivos personales, viajan en clase eco y son clientes leales.
+- Medias calificaciones en todos los servicios.
+Vuelos cortos que respetan el tiempo del cliente que se toma unas vacaciones cerca de casa.
+
+Grupo 3: Clientes que califican todo sobre la media, con algo menos de dispersión en sus calificaciones, sólo califican un poco mejor el cómo los tratan dentro del vuelo.
+Destacar que son clientes más jóvenes, sus vuelos son cortos y por trabajo, el 60% viaja en clase business y el otro 40% en eco.
+Un poco de retraso en sus vuelos.
+Lo que más resalta es que son clientes no leales.
+- Medias calificaciones, poca dispersión.
+Pueden ser trabajadores jóvenes recién contratados por sus empresas de ahí que no sean leales, ya que sus vuelos pueden ser los primeros que realizan.
+
+Grupo 4: Calificaciones generalmente medias con poca dispersión, más bajas en el servicio de wifi y el de embarque.
+Vuelos de media distancia que suelen salir y llegar tarde, clientes en la mayoría viajantes por trabajo y leales, 60%-40% en clase vuelo como en el anterior grupo.
+- Calificaciones medias, destacar que lo importante de este grupo es que sus vuelos suelen salir con más retraso que en los otros grupos.
+Comentarios: - En los grupos 1, 2 y 3 aunque no suele haber retraso, hay algunos vuelos que sí tienen: - En el grupo 1 solo hay 1 par con mucho Retraso.
+- En el grupo 2 y 3, retrasos distribuidos de menos a más, aunque más retraso en el 3.
+
+Conclusiones: - El grupo 1 se distingue claramente de los otros 3.
+Aquí están los clientes que valoran muy bien todos los servicios de la compañía.
+- El grupo 2 abarca casi todos los clientes que no viajan por trajabo, los cuales dan calificaciones medias.
+- El grupo 3 reúne a casi todos los clientes no leales, los cuales viajan casi todos por trabajo (de ahí que valoren bien el wifi, porque les hace falta para trabajar durante el vuelo ya que su vuelo es muy corto).
+- El grupo 4 son los pobrecitos a los que se les ha retrasado el vuelo más de lo normal.
+
+# Conclusiones
+
+Tras la realización de los apartados anteriores donde hemos aplicado técnicas de análisis exploratorio de datos y aprendizaje no supervisado para abordar la temática de nuestra variable objetivo siendo esta la satisfacción de los pasajeros de la aerolínea de donde procede la base de datos.
+
+El análisis exploratorio de datos sobre la satisfacción de los pasajeros de aerolíneas revela que la mayoría de los clientes se consideran neutrales o insatisfechos, con factores como la comodidad del asiento, el entretenimiento a bordo y el servicio de WiFi influyendo significativamente en su percepción.
+Además, se evidencia que los clientes leales tienden a estar más satisfechos y a ser de mayor edad, mientras que los retrasos en los vuelos muestran una alta correlación entre salida y llegada, afectando negativamente la experiencia.
+No obstante, este estudio presenta algunas limitaciones, como la posible presencia de sesgos en la recopilación de datos y también, al tratarse de un análisis basado en respuestas subjetivas, las opiniones pueden verse influenciadas por factores externos no controlados, como el estado de ánimo del pasajero al momento de la evaluación.
+
+Al estudiar cómo reducir la dimensión de nuestros datos probamos primero a hacer un análisis de las componentes principales.
+Vimos que nuestros datos no eran compatibles con la técnica, por lo que tomamos la decisión de realizar un escalado multidimensional, ya que contábamos con datos aptos para ello.
+
+A modo resumen, los factores que más influyen en la satisfacción del cliente son los relacionados con el tiempo, como el retraso del vuelo, y con la comodidad durante el vuelo, como el asiento.
+
+# Repartición práctica
+
+-   Lucía Arnaldo: Preparación de datos y análisis exploratorio. Elaboración clustering con métodos jerárquicos y no jerárquicos. Conclusiones.
+-   Lorena Villa: Comprensión del problema. Preparación de datos y análisis exploratorio. Estudio componentes principales con los datos ironman. Conclusiones.
+-   Álvaro Sánchez: Lectura de datos y particiones. Reducción de la dimensionalidad. Matriz de distancias. Conclusiones.
+
+
