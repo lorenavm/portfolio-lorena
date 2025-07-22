@@ -1,0 +1,1445 @@
+---
+title: "Modelos programados"
+author: "Álvaro Sánchez, Lorena Villa, Lucía Arnaldo"
+date: "2025-05-19"
+output: html_document
+---
+```{r}
+
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# KNN
+
+## Introducción
+En este trabajo se implementa y analiza el modelo de clasificación K-Nearest Neighbors (K-NN), tanto utilizando funciones propias del entorno de R como a través de una programación manual del algoritmo. Primero, se entrena el modelo KNN utilizando funciones del paquete caret, aprovechando herramientas como la validación cruzada repetida y la búsqueda de hiperparámetros mediante grid search, con el fin de seleccionar el mejor valor del parámetro k. Posteriormente, se desarrolla una versión manual del algoritmo KNN, programando desde cero el cálculo de distancias, la identificación de los vecinos más cercanos y la clasificación final por mayoría de votos.
+
+En ambas implementaciones se calculan distintas métricas de rendimiento (accuracy, sensibilidad, especificidad, precisión, etc.) y se evalúa la capacidad del modelo para generalizar en un conjunto de test. Finalmente, se realiza una comparación entre la versión automática y la manual, analizando similitudes y diferencias en los resultados obtenidos.
+
+## Implementación del modelo KNN con caret y validación cruzada
+```{r}
+# Librerías necesarias
+library(caret)
+library(class)
+library(tidyverse)
+
+# Cargamos datos
+library(readr)
+trainP2 <- read_csv("train_P2.csv")
+testP2 <- read_csv("test_P2.csv")
+
+# Selección de variables predictoras y la clase
+# Incluímos satisfaction_bin como variable objetivo
+
+df <- trainP2 %>%
+  dplyr::select(Age, `Flight Distance`, `Inflight wifi service`, 
+         `Ease of Online booking`, `Online boarding`, 
+         `Seat comfort`, `Inflight entertainment`, 
+         `On-board service`, `Leg room service`, 
+         `Baggage handling`, `Checkin service`, 
+         `Inflight service`, Cleanliness, 
+         `Departure Delay in Minutes`, 
+         `Arrival Delay in Minutes`, 
+         Gender_bin, TypeOfTravel_bin, 
+         CustomerType_bin, Class_bin, 
+         satisfaction_bin)
+
+# Escalamos columnas numéricas
+
+df_scaled <- df #Copia del dataframe para no modificación
+columnas_escalar <- c("Age", "Flight Distance", "Inflight wifi service", 
+                   "Ease of Online booking", "Online boarding", 
+                   "Seat comfort", "Inflight entertainment", 
+                   "On-board service", "Leg room service", 
+                   "Baggage handling", "Checkin service", 
+                   "Inflight service", "Cleanliness", 
+                   "Departure Delay in Minutes", "Arrival Delay in Minutes")
+
+df_scaled[, columnas_escalar] <- scale(df_scaled[, columnas_escalar])
+
+
+# variable objetivo=factor
+df_scaled$satisfaction_bin <- as.factor(df_scaled$satisfaction_bin)
+
+# Validación cruzada 10-fold con 3 repeticiones
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+metric <- "Accuracy"
+
+# Entrenar el modelo
+set.seed(128)
+fit.knn <- train(satisfaction_bin ~ ., data = df_scaled, 
+                 method = "knn",
+                 metric = metric,
+                 trControl = control)
+
+# Mejor valor de k y resumen
+print(fit.knn)
+print(fit.knn$bestTune)
+plot(fit.knn)
+#Guardar 
+saveRDS(df_scaled, "df_scaled.rds")      # Guardar datos preprocesados
+saveRDS(fit.knn, "fit_knn_model.rds")    # Guardar el modelo entrenado
+
+
+```
+En esta parte aplicamos el modelo de vecinos más cercanos (KNN) usando validación cruzada repetida (10 folds, 3 repeticiones) sobre nuestro conjunto que venimos trabajando desde el principio. La variable objetivo que se desea predecir es `satisfaction_bin`, que representa la satisfacción del cliente como una variable binaria.
+En esta fase se entrenó un modelo K-Nearest Neighbors (KNN) utilizando validación cruzada repetida (10 folds, 3 repeticiones) con el paquete caret. No se especificó manualmente un conjunto de valores de k para evaluar, por lo que el algoritmo consideró automáticamente tres valores predeterminados:k=5, k=7, k=9.
+Como se observa, el mejor rendimiento lo obtuvo k=9, que presentó el mayor valor accuracy (87,93%) junto con el mayor índice kappa (0,7503). Este resultado indica una mejor capacidad del modelo para clasificar correctamente y una concordancia más sólida entre las predicciones y las clases reales.
+
+## Aplicación del modelo KNN al conjunto de test y análisis de resultados
+```{r}
+# Escalar las mismas variables que en el train
+# Usamos media y sd del entrenamiento
+media <- colMeans(trainP2[ , columnas_escalar]) 
+stddev <- apply(trainP2[ , columnas_escalar], 2, sd)
+
+# Aplicar escalado
+test_scaled <- testP2
+test_scaled[, columnas_escalar] <- sweep(test_scaled[, columnas_escalar], 2, media, "-")
+test_scaled[, columnas_escalar] <- sweep(test_scaled[, columnas_escalar], 2, stddev, "/")
+
+# 'satisfaction_bin' es factor al igual que en train
+test_scaled$satisfaction_bin <- as.factor(test_scaled$satisfaction_bin)
+
+# Predicción
+prediction <- predict(fit.knn, newdata = test_scaled)
+
+# Matriz de confusión
+cf <- confusionMatrix(prediction, test_scaled$satisfaction_bin, positive = "1")
+print(cf)
+
+```
+Después de escalar los datos de test con las mismas medias y desviaciones que hemos aplicado en train, hemos aplicado el modelo con k=9 obteniendo los siguientes resultados.
+Las métricas clave son:
+- Accuracy: 0.8841 indicando que el modelo acierta el 88.41% de las veces.
+- Kappa: 0.7618 indicando una concordancia moderada entre predicción y realidad.
+- Sensitivity: 0.8418 que hace referencia a la sensibilidad del modelo a identificar los casos positivos que en nuestro caso son los 1 que son los satisfechos.
+- Especificidad: 0.9156. En este caso el modelo detecta correctamente el 91.56% de los casos negativos (clase 0).
+- Valor predictivo positivo: 0.88817. Hace referencia a cuando el modelo predice el 1, acierta un 88.17% de las veces.
+- Valor predictivo negativo: cuando predice cero, acierta un 88.57%.
+- Balanced Accuracy: 0.8787. Hace referencia al promedio entre sensibilidad y especificidad.
+Teniendo en cuenta lo anterior, vemos que aparece un buen equilibrio entre detectar positivos y negativos. Además, tiene un accuracy bastante alto y un kappa cercano a 0.8, lo que nos indica que el modelo está funcionando bien y que tiene un poder predictivo real. Además, el valor de p asociado al Accuracy (< 2e-16) indica que el modelo supera significativamente a un clasificador que siempre predice la clase mayoritaria.
+En conclusión, el modelo KNN con k=9 demuestra una buena capacidad de generalización al conjunto de test, por lo que se considera una opción robusta y eficaz para la clasificación binaria de la satisfacción de los clientes.
+
+
+## Búsqueda del mejor valor de k mediante Grid Search y validación cruzada
+```{r}
+# Librerías
+library(tidyverse)
+library(caret)
+library(dplyr)
+# Cargar datos
+trainP2 <- read_csv("train_P2.csv")
+
+# Preparar dataset: seleccionar columnas predictoras y la clase
+df <- trainP2 %>%
+  dplyr::select(Age, `Flight Distance`, `Inflight wifi service`, 
+         `Ease of Online booking`, `Online boarding`, 
+         `Seat comfort`, `Inflight entertainment`, 
+         `On-board service`, `Leg room service`, 
+         `Baggage handling`, `Checkin service`, 
+         `Inflight service`, Cleanliness, 
+         `Departure Delay in Minutes`, 
+         `Arrival Delay in Minutes`, 
+         Gender_bin, TypeOfTravel_bin, 
+         CustomerType_bin, Class_bin, 
+         satisfaction_bin)
+
+# Escalado de variables numéricas
+df_scaled <- df
+columnas_escalar <- c("Age", "Flight Distance", "Inflight wifi service", 
+                   "Ease of Online booking", "Online boarding", 
+                   "Seat comfort", "Inflight entertainment", 
+                   "On-board service", "Leg room service", 
+                   "Baggage handling", "Checkin service", 
+                   "Inflight service", "Cleanliness", 
+                   "Departure Delay in Minutes", "Arrival Delay in Minutes")
+
+df_scaled[, columnas_escalar] <- scale(df_scaled[, columnas_escalar])
+
+
+
+# Convertir clase a factor
+df_scaled$satisfaction_bin <- as.factor(df_scaled$satisfaction_bin)
+
+# Configuración de validación cruzada
+trainControl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+metric <- "Accuracy"
+
+# Grid de valores de k a probar
+set.seed(1271)
+grid <- expand.grid(.k = seq(1, 30, by = 2)) #Usamos solo valores impares de k para evitar empates en la votación 
+
+# Entrenar modelo con búsqueda de hiperparámetros
+fit.knn <- train(satisfaction_bin ~ ., data = df_scaled, 
+                 method = "knn",
+                 metric = metric,
+                 tuneGrid = grid,
+                 trControl = trainControl)
+
+# Mejor valor de k
+knn.k2 <- fit.knn$bestTune
+print(fit.knn)
+plot(fit.knn)
+
+#A continuación, guardamos el conjunto de datos escalado y el modelo KNN optimizado (con k=13) para su uso posterior en las predicciones y evaluaciones.
+
+saveRDS(df_scaled, "df_scaled.rds")      # Guardar datos preprocesados 
+saveRDS(fit.knn, "fit_knn_model.rds")    # Guardar el modelo entrenado tras grid search
+
+
+```
+En este proceso se aplicó una validación cruzada repetida (10 folds, 3 repeticiones) para evaluar el rendimiento del modelo K-Nearest Neighbors (KNN) al variar el número de vecinos k, en un rango de valores comprendido entre 1 y 29. El objetivo era identificar el valor óptimo de k que maximizara el rendimiento del modelo sobre el conjunto de entrenamiento.
+Como se observa en los resultados, el valor de k=13 alcanzó el mejor rendimiento, con un accuracy de 88.20% y un índice Kappa de 0.7559, lo que refleja una concordancia sólida entre las predicciones del modelo y las clases reales.
+El gráfico generado muestra que el accuracy crece rápidamente en los primeros valores de k, se estabiliza alrededor de k=11 a k=17, y tiende a descender o estancarse levemente a partir de ese punto. Esto es coherente con la teoría: valores de k muy bajos son más sensibles al ruido y al overfitting, mientras que valores muy altos diluyen la capacidad del modelo para discriminar patrones relevantes, al incluir vecinos poco representativos.
+Por tanto, el proceso de búsqueda de hiperparámetros sugiere que k=13 es el número de vecinos más adecuado para este conjunto de datos, logrando un buen compromiso entre precisión y generalización.
+Además, se decidió restringir los valores de k a números impares durante la búsqueda, con el fin de evitar empates en la votación entre clases en el algoritmo KNN. Esto mejora la estabilidad del modelo y facilita la toma de decisiones cuando se clasifica una nueva instancia.
+
+## Predicción probabilística y análisis del modelo KNN en test
+```{r}
+# Librerías necesarias
+library(tidyverse)
+library(caret)
+
+# Cargar datos de test
+testP2 <- read_csv("test_P2.csv")
+
+# Escalar las mismas columnas numéricas que en el train
+test_scaled <- testP2
+test_scaled[, columnas_escalar] <- sweep(test_scaled[, columnas_escalar], 2, media, "-")
+test_scaled[, columnas_escalar] <- sweep(test_scaled[, columnas_escalar], 2, stddev, "/")
+
+# 'satisfaction_bin' es factor al igual que en train
+test_scaled$satisfaction_bin <- as.factor(test_scaled$satisfaction_bin)
+
+# Predecir probabilidades
+set.seed(128)
+prediction.knn <- predict(fit.knn, newdata = test_scaled, type = "prob")[, "1"]
+
+# Clasificación con umbral 0.5
+clase.pred.knn <- ifelse(prediction.knn > 0.5, "1", "0")
+
+# Matriz de confusión
+cf <- confusionMatrix(as.factor(clase.pred.knn), test_scaled$satisfaction_bin, positive = "1")
+print(cf)
+
+```
+Utilizamos el modelo KNN entrenado previamente (con k=13) para predecir las probabilidades de pertenecer a la clase positiva (satisfaction_bin = 1) sobre el conjunto de test. A partir de esas probabilidades, aplicamos un umbral de decisión de 0.5, clasificando cada caso como "1" si la probabilidad era superior a dicho umbral, y como "0" en caso contrario.
+
+Esta estrategia permite un mayor control sobre la toma de decisiones, ya que no se depende únicamente de la votación directa de vecinos, sino que se considera la probabilidad acumulada de pertenecer a una clase. Esto es especialmente útil en contextos donde se desea ajustar el modelo según el coste de los errores (por ejemplo, priorizar la detección de positivos aunque aumenten los falsos positivos).
+
+En cuanto al rendimiento, la clasificación basada en probabilidades con umbral 0.5 ha ofrecido métricas ligeramente superiores a las obtenidas con la clasificación directa. En particular, se obtuvo un accuracy del 88.89%, un Kappa de 0.771, una sensibilidad de 83.62% y una especificidad del 92.83%, lo que evidencia un excelente equilibrio entre la detección de clientes satisfechos y la minimización de falsos positivos.
+
+En conclusión, el uso de predicciones probabilísticas no solo mejora el rendimiento del modelo, sino que también aporta flexibilidad, permitiendo ajustar el umbral de decisión según las necesidades del negocio o los objetivos del análisis.
+
+```{r}
+# Escalar las mismas variables que en el train
+# Usamos media y sd del entrenamiento
+media <- colMeans(trainP2[ , columnas_escalar]) 
+stddev <- apply(trainP2[ , columnas_escalar], 2, sd)
+
+# Aplicar escalado
+test_scaled <- testP2
+test_scaled[, columnas_escalar] <- sweep(test_scaled[, columnas_escalar], 2, media, "-")
+test_scaled[, columnas_escalar] <- sweep(test_scaled[, columnas_escalar], 2, stddev, "/")
+
+# 'satisfaction_bin' es factor al igual que en train
+test_scaled$satisfaction_bin <- as.factor(test_scaled$satisfaction_bin)
+
+# Predicción
+prediction <- predict(fit.knn, newdata = test_scaled)
+
+# Matriz de confusión
+cf <- confusionMatrix(prediction, test_scaled$satisfaction_bin, positive = "1")
+print(cf)
+```
+En este caso particular, el resultado de la clasificación directa coincide con el de la clasificación basada en probabilidades con umbral 0.5, lo que confirma que el modelo realiza una asignación clara y consistente. No obstante, contar con las probabilidades permite explorar distintos umbrales si fuera necesario ajustar la sensibilidad o especificidad según el contexto.
+
+## Implementación manual del algoritmo KNN y evaluación del rendimiento
+```{r}
+#Cargamos librerías y los datos
+library(readr)
+library(dplyr)
+library(caret)
+trainP2 <- read_csv("train_P2.csv")
+testP2 <- read_csv("test_P2.csv")
+
+# Selección de variables y escalado
+train_scaled <- trainP2
+test_scaled <- testP2
+
+# Escalar usando media y sd del train para columnas numéricas
+media <- colMeans(train_scaled[, columnas_escalar])
+sd <- apply(train_scaled[, columnas_escalar], 2, sd)
+
+train_scaled[, columnas_escalar] <- sweep(train_scaled[, columnas_escalar], 2, media, "-")
+train_scaled[, columnas_escalar] <- sweep(train_scaled[, columnas_escalar], 2, sd, "/")
+
+test_scaled[, columnas_escalar] <- sweep(test_scaled[, columnas_escalar], 2, media, "-")
+test_scaled[, columnas_escalar] <- sweep(test_scaled[, columnas_escalar], 2, sd, "/")
+
+#Separar variables predictoras y clase
+train_X <- as.matrix(train_scaled[, -which(names(train_scaled) == "satisfaction_bin")])
+train_y <- train_scaled$satisfaction_bin
+
+test_X <- as.matrix(test_scaled[, -which(names(test_scaled) == "satisfaction_bin")])
+test_y <- test_scaled$satisfaction_bin
+
+#Función para distancia euclidiana
+euclidean_distance <- function(a, b) {
+  sqrt(sum((a - b)^2))
+}
+
+#Implementación de KNN manual
+knn_manual <- function(train_X, train_y, test_X, k = 13) {
+  predictions <- c()
+  
+  for (i in 1:nrow(test_X)) {
+    test_point <- test_X[i, ]
+    
+    # Calcular distancia con cada punto del train
+    dists <- apply(train_X, 1, function(row) euclidean_distance(row, test_point)) 
+    
+    # Índices de los k vecinos más cercanos
+    neighbors_idx <- order(dists)[1:k]
+    
+    # Clases de los vecinos
+    neighbor_classes <- train_y[neighbors_idx]
+    
+    # Votación mayoritaria
+    pred_class <- names(which.max(table(neighbor_classes)))
+    predictions <- c(predictions, pred_class)
+  }
+  
+  return(as.factor(predictions))
+}
+
+#Aplicación KNN y evaluación
+pred_manual <- knn_manual(train_X, train_y, test_X, k = 13)
+
+#Generación matriz de confusión
+confusionMatrix(pred_manual, as.factor(test_y), positive = "1")
+
+```
+Después de programar el algoritmo KNN de forma manual y aplicarlo con k=13, evaluamos su rendimiento sobre el conjunto de test. El modelo alcanzó una accuracy del 86.23%, lo que supone una mejora considerable respecto a predecir siempre la clase mayoritaria (que tendría un acierto del 57.25%).
+El índice Kappa fue de 0.7149, indicando una buena concordancia entre las predicciones del modelo y los valores reales.
+Analizando con más detalle las métricas obtenidas:
+- Sensibilidad : 0.7853 → el modelo identifica correctamente al 78.53% de los clientes satisfechos.
+- Especificidad: 0.9198 → detecta correctamente al 91.98% de los clientes no satisfechos.
+- Valor predictivo positivo (Precisión): 0.8797 → cuando predice que alguien está satisfecho, acierta casi un 88% de las veces.
+- Valor predictivo negativo: 0.8516 → cuando predice insatisfacción, acierta en un 85.16% de los casos.
+- Balanced Accuracy: 0.8526 → muestra un rendimiento equilibrado entre las dos clases.
+En conjunto, el modelo manual de KNN con k=13 demuestra ser preciso, equilibrado y confiable para predecir la satisfacción de los clientes.
+
+## Gráfico comparación visual de resultados del modelo automático vs modelo manual
+
+```{r}
+library(ggplot2)
+library(tibble)
+
+# Datos: métrica y valor para cada tipo de modelo
+comparacion <- tribble(
+  ~Metrica,             ~Modelo,      ~Valor,
+  "Accuracy",           "Automático", 0.8889,
+  "Accuracy",           "Manual",     0.8623,
+  "Kappa",              "Automático", 0.771,
+  "Kappa",              "Manual",     0.7149,
+  "Sensibilidad",       "Automático", 0.8362,  
+  "Sensibilidad",       "Manual",     0.7853,
+  "Especificidad",      "Automático", 0.9283,  
+  "Especificidad",      "Manual",     0.9198,
+  "Balanced Accuracy",  "Automático", 0.8822,  
+  "Balanced Accuracy",  "Manual",     0.8526
+)
+
+# Gráfico
+gráfica <- ggplot(comparacion, aes(x = Metrica, y = Valor, fill = Modelo)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparación de rendimiento: KNN Automático vs Manual",
+       y = "Valor", x = "Métrica") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+
+```
+
+En la figura se comparan las principales métricas de rendimiento obtenidas por el modelo KNN implementado de forma automática (usando caret) y la versión manual programada desde cero, ambos aplicados sobre el conjunto de test.
+
+Como se observa, el modelo automático presenta ligeras mejoras en todas las métricas, destacando especialmente en accuracy (88.89%), Kappa (0.771) y especificidad (92.83%). Sin embargo, la implementación manual también obtiene resultados muy competitivos, con una accuracy del 86.23% y un Kappa de 0.7149, lo que demuestra que es un modelo bien construido y capaz de generalizar adecuadamente.
+
+Esta comparación visual refuerza que la implementación manual del algoritmo KNN ha sido realizada correctamente y produce un rendimiento comparable al de una herramienta automatizada.
+
+## Aplicación knn con distancia de grower
+El modelo KNN que usamos en esta parte de la práctica aplica por defecto la distancia Euclidiana.
+Sin embargo, en otra parte de la práctica, debido a las características de nuestros datos (mixtos), utilizamos la distancia de Gower.
+Como KNN usa Euclidiana automáticamente, no sé cómo adaptarlo fácilmente para utilizar Gower.
+¿En este caso está bien dejar la distancia Euclidiana? ¿O habría sido más correcto probar otras distancias?
+Y en caso de dejar la Euclidiana, ¿sería recomendable justificar explícitamente esta elección en el informe?
+```{r}
+# Cargar librerías necesarias
+library(readr)
+library(dplyr)
+library(caret)
+library(cluster)  # Para la distancia Gower
+
+# Cargamos datos
+trainP2 <- read_csv("train_P2.csv")
+testP2 <- read_csv("test_P2.csv")
+
+# Combinar para aplicar Gower
+combinados <- bind_rows(trainP2, testP2)
+combinados$satisfaction_bin <- as.factor(combinados$satisfaction_bin)
+
+# Conversión a factor de las variables binarias
+cols_binarias <- c("Gender_bin", "TypeOfTravel_bin", "CustomerType_bin", "Class_bin")
+combinados[cols_binarias] <- lapply(combinados[cols_binarias], factor)
+
+# Calcular matriz de distancias Gower entre test y train
+gower_dist <- daisy(combinados, metric = "gower")
+
+# Separar la matriz en distancias test vs train
+n_train <- nrow(trainP2)
+n_test <- nrow(testP2)
+gower_matrix <- as.matrix(gower_dist)[(n_train + 1):(n_train + n_test), 1:n_train]
+
+# Etiquetas reales
+train_y <- as.character(trainP2$satisfaction_bin)
+test_y <- as.factor(testP2$satisfaction_bin)
+
+# KNN manual con distancia Gower
+knn_manual_gower <- function(dist_matrix, train_y, k = 13) {
+  prediciones <- c()
+  
+  for (i in 1:nrow(dist_matrix)) {
+    dists <- dist_matrix[i, ]
+    vecinos_idx <- order(dists)[1:k]
+    vecinos_clases <- train_y[vecinos_idx]
+    
+    pred_clase <- names(which.max(table(vecinos_clases)))
+    prediciones <- c(prediciones, pred_clase)
+  }
+  
+  return(factor(prediciones, levels = c("0", "1")))
+}
+
+# Aplicar KNN manual con distancia Gower
+pred_manual_gower <- knn_manual_gower(gower_matrix, train_y, k = 13)
+
+# Evaluación
+confusionMatrix(pred_manual_gower, test_y, positive = "1")
+
+```
+Tras implementar una versión manual del algoritmo K-Nearest Neighbors utilizando la distancia de Gower, se observaron mejoras notables en el rendimiento del modelo respecto a las versiones anteriores con distancia euclidiana. Esta distancia es especialmente adecuada para conjuntos de datos con variables mixtas (numéricas y categóricas), como es nuestro caso. Al aplicar el modelo con k=13, se obtuvo una accuracy del 98.55% y un índice Kappa de 0.9703, lo que refleja una altísima concordancia entre las predicciones y los valores reales. Además, la sensibilidad (97.18%) y la especificidad (99.58%) indican que el modelo es muy eficaz tanto para detectar clientes satisfechos como no satisfechos. Estos resultados sugieren que el uso de la distancia Gower ha permitido capturar mejor las relaciones en los datos, mejorando significativamente la capacidad predictiva del modelo.
+
+
+# LDA
+## Introducción
+
+El análisis discriminante lineal es un algoritmo de clasificación, por lo que la variable objetivo debe ser categórica. Las variables explicativas deben ser continuas para poder asumir que siguen una distribución Normal. El objetivo es construir la combinación lineal de las variables explicativas que mejor discrimina las clases.Se basa en la idea de modelar la distribución de cada clase y aplicar el criterio de Bayes para asignar nuevas observacones a una de ellas.
+
+Nuestros datos contienen variables de varios tipos:
+
+**Continuas/Discretas (numéricas)**: como Age, Flight Distance, Departure Delay, etc.
+
+**Ordinales**: muchas columnas de servicio (ej. Inflight wifi service, Seat comfort, etc.) parecen estar en una escala Likert (1 a 5).
+
+**Categóricas codificadas como binarias**: Gender_bin, TypeOfTravel_bin, CustomerType_bin, Class_bin.
+
+**Variable objetivo (target)**: satisfaction_bin (0 = insatisfecho, 1 = satisfecho), que usaremos para el análisis discriminante lineal (LDA).
+
+Para poder aplicar este ánalisis, las variables ordinales las trataremos como continuas.
+
+## Aplicación del modelo
+
+```{r}
+# Cargar librerías necesarias
+library(MASS)      # para lda()
+library(tidyverse) # para manipulación de datos
+
+set.seed(123)
+
+# Cargar los datos
+train <- read.csv("train_P2.csv")
+test <- read.csv("test_P2.csv")
+
+# Convertir variables binarias (categóricas) en factores 
+bin_vars <- c("Gender_bin", "TypeOfTravel_bin", "CustomerType_bin", "Class_bin", "satisfaction_bin")
+train[bin_vars] <- lapply(train[bin_vars], as.factor)
+test[bin_vars] <- lapply(test[bin_vars], as.factor)
+
+# Seleccionar variables predictoras relevantes
+# Evitamos usar la variable objetivo como predictor
+predictors <- setdiff(names(train), "satisfaction_bin")
+
+# Crear fórmula del modelo
+lda_formula <- as.formula(paste("satisfaction_bin ~", paste(predictors, collapse = " + ")))
+
+# Ajustar modelo LDA
+lda_model <- lda(lda_formula, data = train)
+
+# Mostrar resumen del modelo
+print(lda_model)
+```
+
+En primer lugar tenemos las **'Prior probabilities of groups'**. Estos son los prioris de clase, es decir, las proporciones de observaciones en cada clase (satisfaction_bin = 0 y 1) en el conjunto de entrenamiento, antes de entrenar el modelo.
+- 0 = clientes insatisfechos → 57.31% 
+- 1 = clientes satisfechos → 42.69%
+
+
+Luego tenemos las **'Group means'**.Esto muestra la media de cada variable predictora dentro de cada clase de la variable respuesta. Las variables que cambien más entre clases, serán más discriminantes. Analicemos los resultados obtenidos:
+
+Age → clase 0 (insatisfechos): 37.4 años y clase 1 (satisfechos): 41.6 años ⇒ Los clientes satisfechos son mayores, en promedio.
+
+Flight Distance → clase 0: 931 km y clase 1: 1567 km ⇒ Los clientes satisfechos suelen hacer vuelos más largos.
+
+Inflight wifi service → clase 0: 2.42 y clase 1: 3.41 ⇒ Los clientes satisfechos tienden a puntuar mejor el wifi.
+
+Online boarding → clase 0: 2.73 y clase 1: 4.15 ⇒ Satisfechos valoran mejor el embarque online.
+
+Seat comfort, Inflight entertainment, On board service → En todos estos servicios los satisfechos dan notas más altas, por una diferencia clara. ⇒ Calidad del servicio a bordo hace que sean satisfechos.
+
+Leg room service → clase 0: 3.02 y clase 1: 3.85 ⇒ más espacio para las piernas supone más satisfacción.
+
+Checkin service → clase 0: 3.04 y clase 1: 3.63 ⇒ Mejor experiencia en el check-in también se asocia con satisfacción.
+
+Departure Delay in Minutes y Arrival Delay in Minutes → Satisfechos tienen menos retrasos promedio, tanto en salida como en llegada ⇒ Puntualidad influye.
+
+TypeOfTravel_bin1 → clase 0: 0.54 y clase 1: 0.93 ⇒ Esto significa que la mayoría de los satisfechos hacen viajes de negocio.
+
+CustomerType_bin1 → clase 0: 0.72 y clase 1: 0.88 ⇒ La mayoría de los satisfechos son clientes frecuentes (Loyal Customers), pero gran parte de los insatisfechos también, por lo que no es una variable que ayude a predecir.
+
+Class_bin1 → clase 0: 0.26 y clase 1: 0.74 ⇒ los satisfechos suelen viajar en clase Business o más alta, mientras que los insatisfechos en una opción económica. Es una variable importante.
+
+
+Por último, tenemos los **Coefficients of linear discriminants**. Es el vector de coeficientes de la combinación lineal. Los valores más grandes (en valor absoluto) indican variables más influyentes en la separación de clases. Si el valor es negativo, la relación será inversa. 
+
+Vemos que la variable TypeOfTravel_bin1 tiene un valor 1.379, tiene mucho peso. Esto indica que el tipo de viaje es un gran discriminante: si es de negocios, es más probable que el cliente esté satisfecho.
+
+La variable Online boarding tiene un coeficiente de 0.418, lo que significa que cuanto mejor puntuado el embarque online, más probabilidad de satisfacción.
+
+```{r}
+# Predecir sobre el conjunto de test
+lda_pred <- predict(lda_model, newdata = test)
+
+# Matriz de confusión de test 
+cat("Matriz de confusión (Test):\n")
+if ("satisfaction_bin" %in% names(test)) {
+  table(Predicted = lda_pred$class, Actual = test$satisfaction_bin)
+}
+
+cat("\nPrecisión en Test:", mean(lda_pred$class == test$satisfaction_bin), "\n")
+```
+
+La **matriz de confusión** es la comparación entre las clases predichas por el modelo y las reales. Hemos obtenido: 
+- Verdaderos negativos (VN): 212 (predicho 0 y real 0)
+- Verdaderos positivos (VP): 151 (predicho 1 y real 1)
+- Falsos negativos (FN): 26 (predicho 0 pero era 1)
+- Falsos positivos (FP): 25 (predicho 1 pero era 0)
+
+Con estos valores podemos calcular métricas que no ayudan a evaluar el rendimiento del modelo, como accuracy, sesibilidad y precisión.
+
+Accuracy: (212 + 151) / total = 363 / 414 ≈ 87.7%
+
+Sensibilidad (Recall clase 1): 151 / (151 + 26) ≈ 85.3%
+
+Precisión (Precision clase 1): 151 / (151 + 25) ≈ 85.8%
+
+Obtenemos unos valores altos, por lo que el modelo está funcionando bien.
+
+
+
+```{r}
+# Veamos gráficamente cómo el modelo LDA separa las clases con LD1
+
+# Añadir las puntuaciones del discriminante y la clase real al conjunto de test
+lda_df <- data.frame(
+  LD1 = lda_pred$x[, 1],  # puntuación sobre la función discriminante LD1
+  Class = test$satisfaction_bin  # clase real
+)
+
+# Convertir la clase a factor para ggplot
+lda_df$Class <- as.factor(lda_df$Class)
+
+# Crear gráfico
+library(ggplot2)
+ggplot(lda_df, aes(x = LD1, fill = Class)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Separación de clases usando LD1",
+       x = "LD1 (Discriminante Lineal 1)",
+       fill = "Satisfacción") +
+  theme_minimal()
+
+```
+Este gráfico muestra la distribución de las puntuaciones sobre la primera función discriminante (LD1) para cada clase (0 = insatisfecho, 1 = satisfecho). El rojo representa los clientes insatisfechos y el azul los satisfechos.
+
+Vemos que las dos curvas de densidad están bien separadas sobre el eje LD1. Esto indica que el modelo LDA logró encontrar una combinación lineal de variables que separa bien ambas clases. Sin embargo, la zona central donde las curvas se cruzan es donde el modelo tiene más incertidumbre para clasificar.
+
+
+
+
+
+
+```{r}
+# Gráfico de LDA
+
+# Creamos el vector de colores en función de la clase real
+colores <- ifelse(test$satisfaction_bin == 0, "red", "blue")
+
+# Gráfico
+plot(lda_pred$x[, 1],                         # Coordenadas LD1
+     rep(0, nrow(lda_pred$x)),                # Todos los puntos alineados en Y=0
+     col = colores,                           # Colores por clase
+     xlab = "Componente discriminante 1 (LD1)",
+     ylab = "",
+     main = "Proyección de LDA sobre LD1",
+     pch = 19)
+
+legend("topright",
+       legend = c("Insatisfecho (0)", "Satisfecho (1)"),
+       col = c("red", "blue"),
+       pch = 19)
+  
+```
+El objetivo de este gráfico es visualizar la separación entre clases según sus valores en LD1. Cada punto representa una observación (cliente), y el color indica su clase real (rojo = insatisfecho; azul = satisfecho)
+
+Como LD1 es una única dimensión, todos los puntos se alinean sobre el eje horizontal (con Y = 0) y la distribución se interpreta horizontalmente.
+
+Los puntos rojos están mayoritariamente hacia la izquierda (LD1 negativos).Y los puntos azules están mayoritariamente hacia la derecha (LD1 positivos).
+
+Al igual que con el gráfico anterior, vemos que LD1 separa bien las clases, aunque hay cierta superposición en el centro, lo que puede causar errores de clasificación.
+
+
+```{r}
+# Para poder ver mejor como están distribuidos, añadimos un ruido vertical usando geom_jitter(). EL eje Y no tiene significado real.
+
+
+ggplot(lda_df, aes(x = LD1, y = 0, color = Class)) +
+  geom_jitter(height = 0.1, alpha = 0.7, size = 2) +
+  labs(title = "Gráfico de puntos sobre LD1",
+       x = "LD1 (Discriminante lineal 1)",
+       y = "") +
+  theme_minimal() +
+  scale_color_manual(values = c("firebrick", "darkblue")) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.grid.major.y = element_blank())
+
+```
+A diferencia del gráfico anterior donde todos los puntos estaban alineados horizontalmente, aquí usamos geom_jitter() para esparcirlos verticalmente de forma artificial, sin que el eje Y tenga ningún significado. Esta visualización ayuda a ver con más claridad cómo se distribuyen las clases en LD1.
+
+## Implementación del modelo
+
+```{r}
+
+# Separamos por clase
+X0 <- train[train$satisfaction_bin == 0, ]
+X1 <- train[train$satisfaction_bin == 1, ]
+
+# Eliminar la columna de clase
+X0 <- X0[, !(names(X0) %in% "satisfaction_bin")]
+X1 <- X1[, !(names(X1) %in% "satisfaction_bin")]
+
+# Conservamos solo variables numéricas
+X0 <- X0[, sapply(X0, is.numeric)]
+X1 <- X1[, sapply(X1, is.numeric)]
+
+# También lo hacemos con el conjunto completo de entrenamiento
+X_train <- train[, !(names(train) %in% "satisfaction_bin")]
+X_train <- X_train[, sapply(X_train, is.numeric)]
+
+# Clase verdadera
+y_train <- train$satisfaction_bin
+
+# Medias de cada clase
+mu0 <- colMeans(X0)
+mu1 <- colMeans(X1)
+
+# Matrices de covarianza
+S0 <- cov(X0)
+S1 <- cov(X1)
+
+
+# Matriz de covarianza pooleada (ya que LDA asume homocedasticidad)
+n0 <- nrow(X0)
+n1 <- nrow(X1)
+
+Spool <- ((n0 - 1) * S0 + (n1 - 1) * S1) / (n0 + n1 - 2)
+
+
+# Dirección discriminante
+
+# w = Spool^{-1} (mu1 - mu0)
+w <- solve(Spool) %*% (mu1 - mu0)
+
+
+# Proyección del conjunto de entrenamiento
+LD1_train <- as.matrix(X_train) %*% w
+
+# Umbral de decisión: punto medio entre medias proyectadas
+threshold <- mean(c(mean(as.matrix(X0) %*% w), mean(as.matrix(X1) %*% w)))
+
+# Clasificación
+predicted_train <- ifelse(LD1_train > threshold, 1, 0)
+
+# Matriz de confusión y presición en train
+cat("Matriz de confusión (Train):\n")
+print(table(Predicho = predicted_train, Real = y_train))
+cat("Precisión en Train:", mean(predicted_train == y_train), "\n")
+
+
+# Aplicamos a test
+
+# Preparamos el test eliminando la clase y dejando solo numéricas
+X_test <- test[, !(names(test) %in% "satisfaction_bin")]
+X_test <- X_test[, sapply(X_test, is.numeric)]
+
+# Clase real en test
+y_test <- test$satisfaction_bin
+
+# Proyectar
+LD1_test <- as.matrix(X_test) %*% w
+
+# Clasificación
+predicted_test <- ifelse(LD1_test > threshold, 1, 0)
+
+# Matriz de confusión y presición en test
+cat("\nMatriz de confusión (Test):\n")
+print(table(Predicho = predicted_test, Real = y_test))
+cat("Precisión en Test:", mean(predicted_test == y_test), "\n")
+
+
+
+```
+
+La matriz de confusión de test nos da la siguiente información:
+- Verdaderos negativos (VN): 191 (predicho 0 y real 0)
+- Verdaderos positivos (VP): 145 (predicho 1 y real 1)
+- Falsos negativos (FN): 32 (predicho 0 pero era 1)
+- Falsos positivos (FP): 46 (predicho 1 pero era 0)
+
+El modelo tiene una precisión de 0.8115942, lo que siginifica que acierta el 81,2% de las veces.
+
+```{r}
+# GRÁFICO DE PROYECCIÓN MANUAL SOBRE LD1 
+
+# Crear dataframe con LD1 y clases
+lda_manual_df <- data.frame(
+  LD1 = LD1_test,
+  Class = as.factor(y_test)
+)
+
+# Gráfico (todos alineados en Y=0)
+ggplot(lda_manual_df, aes(x = LD1, y = 0, color = Class)) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(
+    title = "Proyección manual sobre LD1",
+    x = "LD1 (Discriminante lineal 1)",
+    y = "",
+    color = "Satisfacción"
+  ) +
+  scale_color_manual(values = c("firebrick", "darkblue")) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.major.y = element_blank()
+  )
+
+```
+Visualmente, obtenemos un gráfico bastante similar al del modelo con funciones de r. Todos los puntos se alinean sobre el eje horizontal (con Y = 0) y la distribución se interpreta horizontalmente.
+
+Los puntos rojos están mayoritariamente hacia la izquierda y los puntos azules están mayoritariamente hacia la derecha.
+
+Al igual que con el gráfico anterior, vemos que LD1 separa bien las clases, aunque hay cierta superposición en el centro, lo que puede causar errores de clasificación.
+
+## Comparación del modelo programado con las funciones propias de R
+
+Los resultados obtenidos en ambos modelos son bastantes similares. El programado con funciones de R tiene una precisión ligeramente mayor, por lo que será el que usaremos.
+
+# Bagging
+```{r}
+
+# Cargamos el csv con los datos.
+library(readr)
+trainP2 <- read_csv("train_P2.csv")
+testP2 <- read_csv("test_P2.csv")
+
+set.seed(100)
+
+library(MASS)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(e1071)
+library(ggplot2)
+
+
+# Nombres sin espacios
+names(trainP2) <- make.names(names(trainP2), unique = TRUE)
+names(testP2) <- make.names(names(testP2), unique = TRUE)
+
+
+# Ponemos nuestra variable objetivo como factor ya que vamos a clasificar
+trainP2$satisfaction_bin <- as.factor(trainP2$satisfaction_bin)
+testP2$satisfaction_bin <- as.factor(testP2$satisfaction_bin)
+# Renombrar niveles de la variable de clase
+levels(trainP2$satisfaction_bin) <- c("Insatisfecho", "Satisfecho")
+levels(testP2$satisfaction_bin) <- c("Insatisfecho", "Satisfecho")
+#Función para elegir medidas
+
+medidas_personalizadas <- function(data, lev = NULL, model = NULL) {
+  confusion <- confusionMatrix(data$pred, data$obs, positive = "Satisfecho")
+  acc <- confusion$overall["Accuracy"]
+  kappa <- confusion$overall["Kappa"]
+  sens <- confusion$byClass["Sensitivity"]
+  spec <- confusion$byClass["Specificity"]
+  bal_acc <- (sens + spec) / 2
+  out <- c(acc, kappa, sens, spec, bal_acc)
+  names(out) <- c("Accuracy", "Kappa", "Sensitivity", "Specificity", "Balanced_Accuracy")
+  return(out)
+}
+
+#Bagging (treebag)
+library(ipred)
+
+# Control con métricas personalizadas y validación cruzada de 5 particiones
+baggingControl <- trainControl(
+  method = "cv",
+  number = 5,
+  summaryFunction = medidas_personalizadas,
+  classProbs = TRUE,
+  savePredictions = TRUE
+)
+
+# Entrenamiento del modelo Bagging
+bagging <- train(
+  satisfaction_bin ~ ., 
+  data = trainP2,
+  method = "treebag",
+  trControl = baggingControl,
+  metric = "Balanced_Accuracy"
+)
+
+# Resultados
+print(bagging)
+
+
+# Evaluación en test
+baggingPrediccion <- predict(bagging, newdata = testP2)
+baggingConfusion <- confusionMatrix(baggingPrediccion, testP2$satisfaction_bin, positive = "Satisfecho")
+print(baggingConfusion)
+
+
+#Manual
+library(rpart)
+library(caret)
+set.seed(100)
+
+n_bags <- 25  # Número de modelos
+predicciones <- matrix(NA, nrow = nrow(testP2), ncol = n_bags)
+
+for (i in 1:n_bags) {
+  # Creamos muestra bootstrap
+  indices_bootstrap <- sample(1:nrow(trainP2), replace = TRUE)
+  muestra_bootstrap <- trainP2[indices_bootstrap, ]
+  
+  # Entrenamos un árbol con rpart
+  arbol_i <- rpart(satisfaction_bin ~ ., data = muestra_bootstrap, method = "class", control = rpart.control(cp = 0.01))
+  
+  # Predicción en test
+  pred_i <- predict(arbol_i, newdata = testP2, type = "class")
+  
+  # Verificar que el tamaño de las predicciones coincida con testP2
+  if (length(pred_i) != nrow(testP2)) {
+    stop("El número de predicciones no coincide con el número de filas en testP2")
+  }
+  
+  # Guardamos la predicción
+  predicciones[, i] <- as.character(pred_i)
+}
+
+# Combinamos las predicciones por mayoría
+voto_final <- apply(predicciones, 1, function(x) {
+  names(sort(table(x), decreasing = TRUE))[1]
+})
+
+# Verificar que voto_final tenga el mismo número de elementos que testP2
+if (length(voto_final) != nrow(testP2)) {
+  stop("El número de predicciones por mayoría no coincide con el número de filas en testP2")
+}
+
+voto_final <- as.factor(voto_final)
+
+# Evaluamos el modelo
+bagging_manual_conf <- confusionMatrix(voto_final, testP2$satisfaction_bin, positive = 'Satisfecho')
+print(bagging_manual_conf)
+
+# Comparacion modelos
+library(ggplot2)
+library(tibble)
+
+# Datos: métrica y valor para cada tipo de modelo
+comparacion <- tribble(
+  ~Metrica,             ~Modelo,      ~Valor,
+  "Accuracy",           "Automático", 0.9348,
+  "Accuracy",           "Manual",     0.9034,
+  "Kappa",              "Automático", 0.8667,
+  "Kappa",              "Manual",     0.8023,
+  "Sensibilidad",       "Automático", 0.9209,  
+  "Sensibilidad",       "Manual",     0.8814,
+  "Especificidad",      "Automático", 0.9451,  
+  "Especificidad",      "Manual",     0.9198,
+  "Balanced Acc.",  "Automático", 0.9330,  
+  "Balanced Acc.",  "Manual",     0.9006
+)
+
+# Gráfico
+gráfica <- ggplot(comparacion, aes(x = Metrica, y = Valor, fill = Modelo)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparación de rendimiento: Bagging Automático vs Manual",
+       y = "Valor", x = "Métrica") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+gráfica
+```
+
+# Boosting
+## Introducción 
+El ensamblado de Boosting es una técnica de ML que se utiliza para mejorar el rendimiento de los modelos de clasificación o regresión. A diferencia del Bagging, que entrena múltiples modelos en paralelo y los promedia, el Boosting entrena modelos **de forma secuencial**, dando mayor peso a las observaciones mal clasificadas en cada iteración.
+
+Comienza con un modelo simple entrenado en los datos originales. Luego, en cada iteración, se entrena un nuevo modelo enfocado en corregir los errores del anterior, dando más peso a las instancias mal clasificadas. Al final, se combinan todos los modelos, ponderando sus predicciones según su desempeño, para formar un modelo fuerte y preciso.
+
+Algunos algoritmos de Boosting populares incluyen AdaBoost, Gradient Boosting, y XGBoost. Utilizaremos el XGBoost, que es una optimización del algoritmo de Gradient Boosting.
+
+
+## Aplicación del modelo
+
+```{r}
+
+library(purrr)
+library(dplyr)
+library(caret)
+library(xgboost)
+library(readr)
+library(pROC)
+
+set.seed(123)
+
+# Cargar los datos
+df <- read_csv("train_P2.csv")
+df.test <- read_csv("test_P2.csv")
+
+# Convertimos todos los datos a numéricos si no lo son ya
+df.train <- map_df(df, function(col) as.numeric(col))
+df.test <- map_df(df.test, function(col) as.numeric(col))
+
+datos <- list()
+datos$train <- df.train
+datos$test <- df.test
+
+# Convertimos los datos al formato DMatrix
+datos$train_mat <- xgb.DMatrix(
+  data = as.matrix(dplyr::select(datos$train, -satisfaction_bin)),
+  label = datos$train$satisfaction_bin
+)
+
+datos$test_mat <- xgb.DMatrix(
+  data = as.matrix(dplyr::select(datos$test, -satisfaction_bin)),
+  label = datos$test$satisfaction_bin
+)
+
+# Convertimos a factor (para el grid search)
+df.train$satisfaction_bin <- factor(df.train$satisfaction_bin, levels = c(0,1), labels = c("No", "Yes"))
+df.test$satisfaction_bin <- factor(df.test$satisfaction_bin, levels = c(0,1), labels = c("No", "Yes"))
+```
+
+Una vez hemos preparado los datos, hacemos grid search para la búsqueda de hiperparámetros y ver cuáles ajustan mejor el modelo. Probamos con distintos valores de nrounds (número máximo de iteraciones boosting), de max-depth (número de nodos de bifurcación de los árboles de de decisión) y de eta (tasa de aprendizaje del modelo) y posteriormente usaremos los mejores valores a la hora de entrenar el modelo.
+```{r}
+# Grid Search 
+xgbGrid <- expand.grid(
+  nrounds = c(10, 20, 50),
+  max_depth = c(1, 2, 3),
+  eta = c(0.01, 0.1, 0.3),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+control <- trainControl(
+  method = "cv",
+  number = 5,
+  summaryFunction = twoClassSummary,
+  classProbs = TRUE,
+  savePredictions = TRUE
+)
+
+xgb_model <- train(
+  satisfaction_bin ~ .,
+  data = df.train,
+  method = "xgbTree",
+  trControl = control,
+  tuneGrid = xgbGrid,
+  metric = "Accuracy"
+)
+
+# Extraer hiperparámetros óptimos
+best_params <- xgb_model$bestTune
+print(best_params)
+
+```
+Vemos que nos ha salido que los valores óptimos de los parámetros son:
+- nrounds = 50
+- max_depth = 3
+- eta = 0.3
+
+
+```{r}
+# Entrenamiento del modelo
+datos$modelo_01 <- xgboost(
+  data = datos$train_mat,
+  objective = "binary:logistic", # clasificación binaria
+  nround = 50, # número máximo de iteraciones boosting
+  max_depth = 3, # número de nodos de bifurcación de los árboles de de decisión usados en el entrenamiento
+  eta = 0.3, # La tasa de aprendizaje del modelo
+  nthread = 2 #  El número de hilos computacionales que serán usados en el proceso de entrenamiento. 
+)
+```
+Estos valores muestran como va mejorando la pérdida logarítmica (logloss) del modelo en cada iteración. La pérdida va disminuyendo, lo que significa que el modelo va aprendiendo.
+
+```{r}
+# Visualización
+xgb.plot.multi.trees(model = datos$modelo_01)
+```
+
+En este árbol, la parte superior está a la izquierda y la parte inferior a la derecha. Además, el número que aparece al lado es la “calidad”, que indica la importancia de la característica en el árbol. Cuanto mayor sea, más importante es dicha característica. Las ramas se basan en condiciones sobre características que ayudan a clasificar a los clientes.
+
+En este caso, vemos que claramente, la característica más importante es 'online boarding', tanto porque está más arriba en el árbol como porque su puntuación de calidad es muy alta, concretamente tiene un valor de 1619.231.
+
+
+Los nodos “hoja”, representan los valores finales de predicción. Las hojas con valores positivos representan grupos satisfechos  y las hojas con valores negativos representan los clientes insatisfechos.  Cuanto mayor sea el número en valor absoluto, más seguro está el modelo de la predicción.
+
+```{r}
+# Convertir odds a probabilidades
+odds_to_probs <- function(odds){
+  exp(odds) / (1 + exp(odds))
+}
+
+odds_to_probs(-5.776) # Hoja 1
+odds_to_probs(-2.7898) # Hoja 2
+odds_to_probs(-0.75954) # Hoja 3
+odds_to_probs(3.0126) # Hoja 4
+odds_to_probs(-1.7553) # Hoja 5
+odds_to_probs(3.6645) # Hoja 6
+odds_to_probs(-0.0034393) # Hoja 7
+odds_to_probs(4.3404) # Hoja 8
+```
+Hemos convertido las salidas de las hojas del árbol (que están en formato odds logarítmicos, o logits) a probabilidades reales.
+
+Logit positivo → probabilidad > 0.5 → más probable clase 1 ("satisfecho")
+Logit negativo → probabilidad < 0.5 → más probable clase 0 ("insatisfecho")
+
+En nuestro caso tenemos que:
+- Hojas 1, 2 y 5 → indican alta probabilidad de insatisfacción (cercanas a 0)
+- Hojas 4, 6 y 8 → indican alta probabilidad de satisfacción (cercanas a 1)
+- Hoja 3 → no tan clara, pero tira más hacia insatisfacción.
+- Hoja 7 → neutral, el modelo no tiene una decisión clara  ~ 0.5).
+
+```{r}
+# Importancia de variables
+importance_matrix <- xgb.importance(model = datos$modelo_01)
+xgb.plot.importance(importance_matrix)
+```
+Gracias a este gráfico, podemos ver cuáles osn las características más impotantes ordenadas de mayor a menor. Concretamente, representa cuánto ha contribuido cada variable a la construcción de los árboles de decisión del modelo. 
+
+Vemos que 'Online boarding' es, con diferencia, la variable más importante del modelo, tal y como habíamos dicho antes. Esto significa que el modelo usa esta variable con mucha frecuencia y que cuando lo hace, las divisiones que genera mejoran mucho la predicción, ya que tiene una importancia de alrededor del 35% del total.
+
+Otras variables también importantes son 'Inflight wifi service' y 'TypeOfTravel_bin'.
+
+```{r}
+# Predicciones
+datos$predict_01 <- predict(datos$modelo_01, datos$test_mat)
+
+# Conversión a etiquetas binarias
+predicted_labels <- ifelse(datos$predict_01 > 0.5, 1, 0)
+
+# Matriz de confusión con niveles consistentes
+confusionMatrix(
+  data = factor(predicted_labels, levels = c(0, 1)),
+  reference = factor(datos$test$satisfaction_bin, levels = c(0, 1)),
+  positive = "1"
+)
+
+```
+
+En la matriz de confusión vemos que en este modelo tenemos:
+- 229 verdaderos negativos (predijo correctamente insatisfacción)
+- 160 verdaderos positivos (predijo correctamente satisfacción)
+- 17 falsos negativos (clientes satisfechos predichos como no satisfechos)
+- 8 falsos positivos  (clientes insatisfechos predichos como satisfechos)
+
+**Accuracy** tine un valor de 0.9396, lo que significa que el 93.96% de las predicciones fueron correctas.
+
+Además, vemos que **sensitivity** = 0.9040, lo que significa que el modelo detecta el 90.4% de los clientes satisfechos correctamente (tasa de verdaderos positivos); y **specificity** = 0.9662, que indica que el modelo detecta el 96.6% de los insatisfechos correctamente.
+
+**Kappa** mide cuánto mejor es el modelo respecto al azar. En este caso, Kappa = 0.8758, por lo que el modelo es bueno.
+
+**Pos Pred Value** (Precision) tiene un valor de 0.9524, es decir, que cuando el modelo dice que alguien está satisfecho (clase 1), acierta el 95% de las veces.
+
+Y **Neg Pred Value** tiene un valor de 0.9309, que signigifca que cuando predice que alguien NO está satisfecho, acierta el 93% de las veces.
+
+En general, todos estos valores muestran que el modelo es bastante bueno ya que predice bien la variable objetivo.
+
+
+
+## Implementación del modelo
+
+```{r}
+library(rpart)
+library(caret)
+
+set.seed(123)
+
+# Preparamos los datos
+train_adaboost <- datos$train
+test_adaboost <- datos$test
+
+# Etiquetas: {-1, 1}
+train_adaboost$y <- ifelse(train_adaboost$satisfaction_bin == 1, 1, -1)
+test_adaboost$y <- ifelse(test_adaboost$satisfaction_bin == 1, 1, -1)
+
+# Inicializamos pesos
+n <- nrow(train_adaboost)
+weights <- rep(1 / n, n)
+
+# Parámetros -> usamos los mismos que en el anterior modelo
+M <- 50     # número de clasificadores base (nrounds)
+depth <- 3  # profundidad del árbol (max_depth)
+eta <- 0.3  # tasa de aprendizaje
+
+models <- list()
+alphas <- numeric(M)
+
+# Entrenamiento AdaBoost manual
+for (m in 1:M) {
+  # Entrenar árbol con profundidad 3
+  modelo <- rpart(
+    y ~ . -satisfaction_bin -y,
+    data = train_adaboost,
+    weights = weights,
+    method = "class",
+    control = rpart.control(maxdepth = depth, cp = -1)
+  )
+
+  # Predecir sobre entrenamiento
+  pred <- predict(modelo, train_adaboost, type = "class")
+  pred <- as.numeric(as.character(pred))
+
+  # Calcular error ponderado
+  incorrecto <- as.numeric(pred != train_adaboost$y)
+  error_m <- sum(weights * incorrecto)
+
+  # Calcular alpha con eta
+  error_m <- max(min(error_m, 1 - 1e-10), 1e-10)
+  alpha_m <- 0.5 * log((1 - error_m) / error_m)
+  alpha_m <- eta * alpha_m  # aplicar learning rate
+
+  # Actualizar pesos
+  weights <- weights * exp(-alpha_m * train_adaboost$y * pred)
+  weights <- weights / sum(weights)
+
+  # Guardar modelo y alpha
+  models[[m]] <- modelo
+  alphas[m] <- alpha_m
+
+}
+
+predict_adaboost <- function(models, alphas, data) {
+  agg <- rep(0, nrow(data))
+  for (m in seq_along(models)) {
+    pred <- predict(models[[m]], data, type = "class")
+    pred <- as.numeric(as.character(pred))
+    agg <- agg + alphas[m] * pred
+  }
+  return(ifelse(agg >= 0, 1, 0))
+}
+
+pred_test <- predict_adaboost(models, alphas, test_adaboost)
+
+confusionMatrix(
+  data = as.factor(pred_test),
+  reference = as.factor(test_adaboost$satisfaction_bin),
+  positive = "1"
+)
+
+```
+En la matriz de confusión vemos que en este modelo tenemos:
+- 224  verdaderos negativos (predijo correctamente insatisfacción)
+- 161 verdaderos positivos (predijo correctamente satisfacción)
+- 16 falsos negativos (clientes satisfechos predichos como no satisfechos)
+- 13 falsos positivos  (clientes insatisfechos predichos como satisfechos)
+
+**Accuracy** tine un valor de 0.93, lo que significa que el 93% de las predicciones fueron correctas.
+
+Además, vemos que **sensitivity** = 0.9096, lo que significa que el modelo detecta el 90.96% de los clientes satisfechos correctamente (tasa de verdaderos positivos); y **specificity** = 0.9451, que indica que el modelo detecta el 94.51% de los insatisfechos correctamente.
+
+En este caso, Kappa = 0.8566, que mide cuánto mejor es el modelo respecto al azar
+
+**Pos Pred Value** (Precision) tiene un valor de 0.9253, es decir, que cuando el modelo dice que alguien está satisfecho (clase 1), acierta el 92% de las veces.
+
+Y **Neg Pred Value** tiene un valor de 0.9333, que signigifca que cuando predice que alguien NO está satisfecho, acierta el 93% de las veces.
+
+En general, todos estos valores muestran que el modelo es bastante bueno.
+
+
+
+## Comparación del modelo programado con el modelo con las funciones propias de R
+
+Creamos una tabla con ambos resultados para poder hacer una comparación de forma más clara entre el modelo usando las funciones de r de xgboost y el modelo adaboost programado.
+                                           
+                          
+```{r}
+# Cargar librería necesaria
+library(knitr)
+
+# Crear la tabla como un data frame
+comparacion <- data.frame(
+  Métrica = c("Accuracy", "Balanced Accuracy", "Sensibilidad (Recall 1)", 
+              "Especificidad (Recall 0)", "Kappa", "Pos Pred Value (Precision)", 
+              "Neg Pred Value", "Mcnemar’s Test p-value"),
+  XGBoost = c("0.9396", "0.9351", "0.9040", "0.9662", "0.8758", "0.9524", "0.9309", "0.1096"),
+  AdaBoost = c("0.93", "0.9274", "0.9096", "0.9451", "0.8566", "0.9253", "0.9333", "0.7103")
+)
+
+# Mostrar la tabla bonita
+kable(comparacion, caption = "Comparación de Métricas: XGBoost vs AdaBoost Programado")
+
+```
+
+Vemos que los resultados de ambos modelos son muy parecidos, tienen un rendimiento muy similar y tienen tanto buena sensibilidad como especificidad.El modelo de xgboost obtiene ligeramente especificidad, mientras que el modelo programado logra ligeramente mejor sensibilidad.
+
+Pero ambos tienen un accuracy derca del 93%, lo que sugiere que ambos métodos son adecuados para predecir la satisfacción del cliente en este caso.
+
+# Naive Bayes
+## Introducción
+El modelo aplicado en esta parte es Naive Bayes con el objetivo de predecir la variable satisfaction_bin, que indica la satisfacción del cliente. Este modelo se basa en el teorema de Bayes y asume que las variables predictoras son independientes entre sí, lo que permite estimar de forma eficiente la probabilidad de pertenencia a cada clase. 
+Se han escalado las variables numéricas y el modelo se entrenó con trainP2 y se evaluó con testP2, clasificando como "1" si la probabilidad posterior superaba 0,5. Los resultados muestran que el modelo es eficaz para distinguir entre clientes satisfechos e insatisfechos.
+## Implementación del modelo Naïve Bayes
+```{r}
+# Cargamos librerías
+library(readr)
+library(naivebayes)
+library(dplyr)
+library(caret)
+
+# Cargamos datos
+trainP2 <- read_csv("train_P2.csv")
+testP2 <- read_csv("test_P2.csv")
+
+# Seleccionamos las variables de trainP2
+df.train <- trainP2 %>%
+  dplyr::select(Age, `Flight Distance`, `Inflight wifi service`, 
+         `Ease of Online booking`, `Online boarding`, 
+         `Seat comfort`, `Inflight entertainment`, 
+         `On-board service`, `Leg room service`, 
+         `Baggage handling`, `Checkin service`, 
+         `Inflight service`, Cleanliness, 
+         `Departure Delay in Minutes`, 
+         `Arrival Delay in Minutes`, 
+         Gender_bin, TypeOfTravel_bin, 
+         CustomerType_bin, Class_bin, 
+         satisfaction_bin)
+
+# Seleccionamos las variables de testP2
+df.test <- testP2 %>%
+  dplyr::select(Age, `Flight Distance`, `Inflight wifi service`, 
+         `Ease of Online booking`, `Online boarding`, 
+         `Seat comfort`, `Inflight entertainment`, 
+         `On-board service`, `Leg room service`, 
+         `Baggage handling`, `Checkin service`, 
+         `Inflight service`, Cleanliness, 
+         `Departure Delay in Minutes`, 
+         `Arrival Delay in Minutes`, 
+         Gender_bin, TypeOfTravel_bin, 
+         CustomerType_bin, Class_bin, 
+         satisfaction_bin)
+
+# Escalado de columnas numéricas
+columnas_escalar <- c("Age", "Flight Distance", "Inflight wifi service", 
+                      "Ease of Online booking", "Online boarding", 
+                      "Seat comfort", "Inflight entertainment", 
+                      "On-board service", "Leg room service", 
+                      "Baggage handling", "Checkin service", 
+                      "Inflight service", "Cleanliness", 
+                      "Departure Delay in Minutes", "Arrival Delay in Minutes")
+
+media <- colMeans(df.train[, columnas_escalar])
+sd <- apply(df.train[, columnas_escalar], 2, sd)
+
+df.train[, columnas_escalar] <- sweep(df.train[, columnas_escalar], 2, media, "-")
+df.train[, columnas_escalar] <- sweep(df.train[, columnas_escalar], 2, sd, "/")
+
+df.test[, columnas_escalar] <- sweep(df.test[, columnas_escalar], 2, media, "-")
+df.test[, columnas_escalar] <- sweep(df.test[, columnas_escalar], 2, sd, "/")
+
+
+# Conversión de clase a categoría
+df.train$satisfaction_bin <- as.factor(df.train$satisfaction_bin)
+df.test$satisfaction_bin <- as.factor(df.test$satisfaction_bin)
+
+# Entrenamiento del modelo Naïve Bayes
+modelo <- naive_bayes(satisfaction_bin ~ ., data = df.train, usekernel = TRUE)
+
+# Predicción de probabilidades y clases según umbral 0.5
+probabilidades <- predict(modelo, df.test[, names(df.test) != "satisfaction_bin"], type = "prob")[, "1"]
+clases <- ifelse(probabilidades > 0.5, "1", "0")
+
+# Evaluación del modelo
+confusionMatrix(as.factor(clases), df.test$satisfaction_bin, positive = "1")
+
+# Guardar los datos escalados
+saveRDS(df.train, "df_train_naivebayes.rds")
+
+# Guardar el modelo entrenado para posterior uso
+saveRDS(modelo, "naive_bayes_model.rds")
+
+
+```
+El modelo Naïve Bayes ha alcanzado un accuracy del 87,2%, lo que significa que acierta en la predicción de la satisfacción de los clientes en el 87% de los casos.
+
+Kappa = 0.7409: indica una concordancia sustancial entre las predicciones del modelo y las clases reales.
+
+Sensibilidad = 0.887: el modelo detecta correctamente el 88,7% de los clientes satisfechos (clase "1"), lo cual concuerda con nuestro objetivo de predecir a los satisfechos.
+
+Especificidad = 0.8608: observamos que con dicho valor evita de manera correcta los falsos positivos.
+
+Precisión (Pos Pred Value) = 0.8263: esto nos indica que  cuando el modelo predice que alguien está satisfecho, acierta el 82,6% de las veces.
+
+Valor predictivo negativo = 0.9107: al tener un valor muy alto, nos indica que cuando predice insatisfacción, acierta en un alto número de veces. 
+
+Balanced Accuracy = 0.8739: indica un equilibrio sólido entre sensibilidad y especificidad.
+
+En resumen, Naïve Bayes parece habernos demostardo ser un modelo bastante eficaz para nuestro conjunto de datos, con métricas de rendimiento sólidas y bien equilibradas. 
+
+## Implementación del modelo de Naive Bayes manualmente
+Para calcularlo manualmente el procedimiento a seguir es:
+1. Calcular las probabilidades a priori de cada clase 
+2. Para cada clase ( satisfaction_bin=0 y 1):
+  - Calcular la media y desviación estándar para cada predictor numérico
+  - Usar la fórmula de la densidad normal para obtener P(X_i \mid Y)
+3. Calcular la probabilidad posterior para cada clase
+4. Asignar la clase con mayor probabilidad
+```{r}
+# Cálculo de estadísticas por clase
+estadisticas_clase <- function(df, variable_objetivo) {
+  clases <- levels(df[[variable_objetivo]])
+  proporciones <- prop.table(table(df[[variable_objetivo]]))
+  estadisticas <- list()
+
+  for (clase in clases) {
+    subconjunto <- df[df[[variable_objetivo]] == clase, ]
+    medias <- sapply(subconjunto[, num_cols], mean)
+    desviaciones <- sapply(subconjunto[, num_cols], sd)
+    estadisticas[[clase]] <- list(media = medias, sd = desviaciones)
+  }
+
+  return(list(estadisticas = estadisticas, proporciones = proporciones))
+}
+
+#Definir para evitar errores 
+num_cols <- columnas_escalar
+
+
+# Predicción manual con Naïve Bayes 
+nb_manual <- function(info_estadisticas, test_df) {
+  clases <- names(info_estadisticas$estadisticas)
+  priors <- info_estadisticas$proporciones
+  estadisticas <- info_estadisticas$estadisticas
+  predicciones <- c()
+
+  for (i in 1:nrow(test_df)) {
+    observacion <- test_df[i, num_cols]
+    log_verosimilitudes <- c()
+
+    for (clase in clases) {
+      media <- estadisticas[[clase]]$media
+      sd <- estadisticas[[clase]]$sd
+      veros <- dnorm(as.numeric(observacion), mean = media, sd = sd, log = TRUE)
+      log_total <- sum(veros) + log(priors[clase])
+      log_verosimilitudes[clase] <- log_total
+    }
+
+    clase_predicha <- names(which.max(log_verosimilitudes))
+    predicciones <- c(predicciones, clase_predicha)
+  }
+
+  return(as.factor(predicciones))
+}
+
+# Aplicación modelo
+info_estadisticas <- estadisticas_clase(df.train, "satisfaction_bin")
+pred_nb_manual <- nb_manual(info_estadisticas, df.test)
+
+# Ajuste de niveles de factor para evaluación
+pred_nb_manual <- factor(pred_nb_manual, levels = levels(df.test$satisfaction_bin))
+
+# Evaluación
+confusionMatrix(pred_nb_manual, df.test$satisfaction_bin, positive = "1")
+
+# Guardado del modelo manual (estadísticas por clase)
+saveRDS(info_estadisticas, "naive_bayes_manual_estadisticas.rds")
+
+# Guardado de las predicciones
+saveRDS(pred_nb_manual, "naive_bayes_manual_predicciones.rds")
+
+# Guardado de resultados de evaluación
+resultado_evaluacion <- confusionMatrix(pred_nb_manual, df.test$satisfaction_bin, positive = "1")
+saveRDS(resultado_evaluacion, "naive_bayes_manual_evaluacion.rds")
+
+
+```
+Tras implementar el algoritmo Naïve Bayes de forma manual, el modelo fue evaluado con los datos de test, obteniendo unos resultados bastante buenos. El accuracy alcanzado fue del 82,61%, lo que significa que el modelo acierta en más de 8 de cada 10 casos. Además, el índice Kappa (0.6462) indica una buena concordancia entre las predicciones y las clases reales. En cuanto a la sensibilidad (0.8136) y especificidad (0.8354), se observa que el modelo es capaz de detectar tanto los clientes satisfechos como los insatisfechos con bastante precisión, logrando un equilibrio entre ambas clases. También destaca el valor predictivo negativo (0.8571), lo que implica que cuando el modelo predice que un cliente no está satisfecho, suele acertar en la mayoría de los casos. En conjunto, los resultados demuestran que el modelo Naïve Bayes es una opción eficiente, sencilla y con un rendimiento muy sólido, incluso cuando se implementa manualmente.
+
+## Gráfico comparación visual de resultados del modelo automático vs modelo manual
+
+```{r}
+library(ggplot2)
+library(tibble)
+
+# Datos: métrica y valor para cada tipo de modelo
+comparacion <- tribble(
+  ~Metrica,             ~Modelo,      ~Valor,
+  "Accuracy",           "Automático", 0.872,
+  "Accuracy",           "Manual",     0.8261,
+  "Kappa",              "Automático", 0.7409,
+  "Kappa",              "Manual",     0.6462,
+  "Sensibilidad",       "Automático", 0.8870,  
+  "Sensibilidad",       "Manual",     0.8136,
+  "Especificidad",      "Automático", 0.8608,  
+  "Especificidad",      "Manual",     0.8354,
+  "Balanced Acc.",  "Automático", 0.8739,  
+  "Balanced Acc.",  "Manual",     0.8245
+)
+
+# Gráfico
+gráfica <- ggplot(comparacion, aes(x = Metrica, y = Valor, fill = Modelo)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparación de rendimiento: Naive Automático vs Manual",
+       y = "Valor", x = "Métrica") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+gráfica
+
+```
+El gráfico anterior compara el rendimiento del modelo Naïve Bayes implementado de forma automática mediante la librería naivebayes con su versión manual programada desde cero. Se observa que el modelo automático presenta un rendimiento ligeramente superior en todas las métricas evaluadas, destacando especialmente en el índice Kappa y en la sensibilidad. Esto sugiere que es más eficaz detectando correctamente los casos positivos (clientes satisfechos). Aunque ambas versiones muestran una buena especificidad y precisión global, la implementación automática logra un equilibrio más robusto entre clases. Estos resultados ponen de manifiesto que, si bien la implementación manual es válida y útil para fines didácticos, el uso de funciones especializadas optimiza el rendimiento y simplifica el proceso de modelado.
+
+## Uso de grid search o búsqueda de hiperparámetros
+A diferencia de otros modelos como KNN, árboles o SVM, el modelo Naïve Bayes no requiere una búsqueda de hiperparámetros mediante Grid Search. Esto se debe a que sus parámetros internos (como medias y desviaciones estándar) se estiman directamente a partir de los datos mediante fórmulas cerradas, y no existen hiperparámetros que deban optimizarse. Por tanto, el modelo se entrena de forma directa y su rendimiento depende principalmente de la calidad del preprocesamiento y del equilibrio en las clases. 
+
+
+
